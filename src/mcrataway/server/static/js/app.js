@@ -21,6 +21,7 @@ const state = {
   selectedPath: '',
   pickerItems: [],
   showPickerModal: false,
+  confirmModal: null,
 };
 
 // Initialize App
@@ -71,6 +72,28 @@ function showToast(message, type = 'info') {
 function setTab(tabName) {
   state.activeTab = tabName;
   renderApp();
+}
+
+// Custom Confirm Modal Dialog System
+function showConfirmModal(options) {
+  state.confirmModal = options;
+  renderApp();
+}
+
+function closeConfirmModal() {
+  state.confirmModal = null;
+  renderApp();
+}
+
+function handleConfirmAction() {
+  if (state.confirmModal && typeof state.confirmModal.onConfirm === 'function') {
+    const action = state.confirmModal.onConfirm;
+    state.confirmModal = null;
+    renderApp();
+    action();
+  } else {
+    closeConfirmModal();
+  }
 }
 
 // Target Root Selection & Checkbox Management
@@ -314,36 +337,50 @@ async function restoreFile(sha256) {
   }
 }
 
-// Permanently Delete Quarantined File
-async function deleteQuarantinedFile(sha256) {
-  if (!confirm('Are you sure you want to permanently delete this file from quarantine?')) return;
-  try {
-    const res = await fetch(`/quarantine/${sha256}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (data.success) {
-      showToast('File permanently deleted from quarantine', 'info');
-      await loadInitialData();
-    } else {
-      showToast('Deletion failed: ' + (data.error || 'Unknown error'), 'error');
-    }
-  } catch (err) {
-    showToast('Deletion failed', 'error');
-  }
+// Permanently Delete Quarantined File (uses custom modal confirm dialog)
+function deleteQuarantinedFile(sha256) {
+  showConfirmModal({
+    title: 'Permanently Delete File',
+    message: 'Are you sure you want to permanently delete this file from quarantine? The file will be erased from disk and cannot be recovered.',
+    confirmText: 'Delete Permanently',
+    icon: 'trash-2',
+    onConfirm: async () => {
+      try {
+        const res = await fetch(`/quarantine/${sha256}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('File permanently deleted from quarantine', 'info');
+          await loadInitialData();
+        } else {
+          showToast('Deletion failed: ' + (data.error || 'Unknown error'), 'error');
+        }
+      } catch (err) {
+        showToast('Deletion failed', 'error');
+      }
+    },
+  });
 }
 
-// Purge All Quarantined Files
-async function purgeQuarantine() {
-  if (!confirm('Are you sure you want to PERMANENTLY DELETE ALL items in quarantine? This action cannot be undone.')) return;
-  try {
-    const res = await fetch('/quarantine/', { method: 'DELETE' });
-    const data = await res.json();
-    if (data.success) {
-      showToast(`Quarantine emptied (${data.purged_count} file(s) deleted)`, 'info');
-      await loadInitialData();
-    }
-  } catch (err) {
-    showToast('Failed to empty quarantine', 'error');
-  }
+// Purge All Quarantined Files (uses custom modal confirm dialog)
+function purgeQuarantine() {
+  showConfirmModal({
+    title: 'Empty Quarantine',
+    message: 'Are you sure you want to PERMANENTLY DELETE ALL items in quarantine? All isolated threat files will be wiped from disk.',
+    confirmText: 'Empty Quarantine',
+    icon: 'shield-alert',
+    onConfirm: async () => {
+      try {
+        const res = await fetch('/quarantine/', { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Quarantine emptied (${data.purged_count} file(s) deleted)`, 'info');
+          await loadInitialData();
+        }
+      } catch (err) {
+        showToast('Failed to empty quarantine', 'error');
+      }
+    },
+  });
 }
 
 // Render Functions
@@ -359,6 +396,7 @@ function renderApp() {
       ${state.activeTab === 'settings' ? renderSettings() : ''}
     </main>
     ${state.showPickerModal ? renderPickerModal() : ''}
+    ${state.confirmModal ? renderConfirmModal() : ''}
   `;
 
   lucide.createIcons();
@@ -515,7 +553,6 @@ function renderDashboard() {
 function renderScanner() {
   const maliciousCount = state.findings.filter(f => f.verdict === 'MALICIOUS').length;
   const suspiciousCount = state.findings.filter(f => f.verdict === 'SUSPICIOUS').length;
-  const targets = getScanTargets();
 
   return `
     <div class="card" style="margin-bottom: 24px;">
@@ -808,6 +845,34 @@ function renderPickerModal() {
   `;
 }
 
+// Render Custom Confirm Modal
+function renderConfirmModal() {
+  const { title, message, confirmText, icon } = state.confirmModal || {};
+  return `
+    <div class="modal-overlay" onclick="closeConfirmModal()">
+      <div class="modal-card" style="max-width:460px;" onclick="event.stopPropagation()">
+        <div class="modal-header">
+          <div class="modal-title" style="color:var(--danger); display:flex; align-items:center; gap:10px;">
+            <i data-lucide="${icon || 'alert-triangle'}" style="color:var(--danger)"></i> ${title || 'Confirm Action'}
+          </div>
+          <button class="btn btn-sm btn-secondary" onclick="closeConfirmModal()"><i data-lucide="x"></i></button>
+        </div>
+
+        <div class="modal-body" style="padding:16px 0; color:var(--text-main); font-size:0.95rem; line-height:1.5;">
+          ${message || 'Are you sure you want to proceed?'}
+        </div>
+
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:12px; margin-top:16px;">
+          <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancel</button>
+          <button class="btn btn-primary" style="background:#ef4444; border-color:#ef4444;" onclick="handleConfirmAction()">
+            <i data-lucide="${icon || 'check'}"></i> ${confirmText || 'Confirm'}
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function addCustomRootAndClose(path) {
   addCustomRoot(path);
   closePickerModal();
@@ -818,6 +883,8 @@ function attachEvents() {
   window.setTab = setTab;
   window.openPickerModal = openPickerModal;
   window.closePickerModal = closePickerModal;
+  window.closeConfirmModal = closeConfirmModal;
+  window.handleConfirmAction = handleConfirmAction;
   window.fetchBrowsePath = fetchBrowsePath;
   window.startScan = startScan;
   window.triggerRuleUpdate = triggerRuleUpdate;
