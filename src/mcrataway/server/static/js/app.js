@@ -491,12 +491,9 @@ function renderScanner() {
             <i data-lucide="radar" style="color:var(--primary)"></i> Live Malware Scanner
           </h2>
           <div style="color:var(--text-muted); font-size:0.9rem; margin-top:4px;">
-            ${state.currentJob ? `Job ID: ${state.currentJob.job_id}` : 'Ready for new scan.'}
+            ${state.currentJob ? `Job ID: ${state.currentJob.job_id}` : 'Ready for scan.'}
           </div>
         </div>
-        <button class="btn btn-secondary" onclick="openPickerModal()">
-          <i data-lucide="folder-plus"></i> Add Targets...
-        </button>
       </div>
 
       ${state.currentJob ? `
