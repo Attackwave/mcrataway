@@ -204,3 +204,41 @@ class QuarantineManager:
                         continue
 
         return results
+
+    def delete_permanently(self, sha256: str) -> bool:
+        """Permanently delete a quarantined item from disk."""
+        if not _SHA256_RE.match(sha256):
+            return False
+        quarantine_path = self.quarantine_dir / sha256
+        if not quarantine_path.exists():
+            return False
+
+        # Attempt to remove placeholder if manifest exists
+        manifest_path = quarantine_path / "manifest.json"
+        if manifest_path.exists():
+            try:
+                manifest_data = json.loads(manifest_path.read_text())
+                original_path = Path(manifest_data.get("original_path", ""))
+                if str(original_path):
+                    placeholder = original_path.with_suffix(original_path.suffix + ".quarantined")
+                    if placeholder.exists():
+                        placeholder.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        try:
+            shutil.rmtree(quarantine_path)
+            return True
+        except Exception:
+            return False
+
+    def purge_all(self) -> int:
+        """Permanently delete all items in quarantine."""
+        deleted_count = 0
+        if not self.quarantine_dir.exists():
+            return 0
+        for item in list(self.quarantine_dir.iterdir()):
+            if item.is_dir() and _SHA256_RE.match(item.name):
+                if self.delete_permanently(item.name):
+                    deleted_count += 1
+        return deleted_count

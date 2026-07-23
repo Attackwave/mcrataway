@@ -301,14 +301,48 @@ async function saveConfig(event) {
 // Restore Quarantined File
 async function restoreFile(sha256) {
   try {
-    const res = await fetch(`/quarantine/${sha256}`, { method: 'DELETE' });
+    const res = await fetch(`/quarantine/${sha256}/restore`, { method: 'POST' });
     const data = await res.json();
     if (data.success) {
       showToast('File successfully restored', 'success');
       await loadInitialData();
+    } else {
+      showToast('Restoration failed: ' + (data.error || 'Unknown error'), 'error');
     }
   } catch (err) {
     showToast('Restoration failed', 'error');
+  }
+}
+
+// Permanently Delete Quarantined File
+async function deleteQuarantinedFile(sha256) {
+  if (!confirm('Are you sure you want to permanently delete this file from quarantine?')) return;
+  try {
+    const res = await fetch(`/quarantine/${sha256}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('File permanently deleted from quarantine', 'info');
+      await loadInitialData();
+    } else {
+      showToast('Deletion failed: ' + (data.error || 'Unknown error'), 'error');
+    }
+  } catch (err) {
+    showToast('Deletion failed', 'error');
+  }
+}
+
+// Purge All Quarantined Files
+async function purgeQuarantine() {
+  if (!confirm('Are you sure you want to PERMANENTLY DELETE ALL items in quarantine? This action cannot be undone.')) return;
+  try {
+    const res = await fetch('/quarantine/', { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Quarantine emptied (${data.purged_count} file(s) deleted)`, 'info');
+      await loadInitialData();
+    }
+  } catch (err) {
+    showToast('Failed to empty quarantine', 'error');
   }
 }
 
@@ -576,8 +610,13 @@ function renderQuarantine() {
           <h2 style="font-weight:600; display:flex; align-items:center; gap:10px;">
             <i data-lucide="box" style="color:var(--danger)"></i> Quarantine Management
           </h2>
-          <div style="color:var(--text-muted); font-size:0.9rem; margin-top:4px;">Isolated files have been safely moved to quarantine.</div>
+          <div style="color:var(--text-muted); font-size:0.9rem; margin-top:4px;">Isolated files are stored safely. You can restore them to their original location or delete them permanently.</div>
         </div>
+        ${state.quarantineItems.length > 0 ? `
+          <button class="btn btn-secondary" style="color:var(--danger); border-color:rgba(239, 68, 68, 0.4);" onclick="purgeQuarantine()">
+            <i data-lucide="trash-2"></i> Empty Quarantine
+          </button>
+        ` : ''}
       </div>
 
       <div class="table-wrapper">
@@ -588,7 +627,7 @@ function renderQuarantine() {
               <th>Verdict</th>
               <th>Date</th>
               <th>SHA-256 Hash</th>
-              <th>Action</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -600,9 +639,14 @@ function renderQuarantine() {
                 <td style="font-size:0.85rem; color:var(--text-muted);">${new Date(item.timestamp).toLocaleString()}</td>
                 <td style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-dim);">${item.sha256.substring(0, 16)}...</td>
                 <td>
-                  <button class="btn btn-sm btn-secondary" onclick="restoreFile('${item.sha256}')">
-                    <i data-lucide="rotate-ccw"></i> Restore
-                  </button>
+                  <div style="display:flex; gap:8px;">
+                    <button class="btn btn-sm btn-secondary" title="Restore file to original location" onclick="restoreFile('${item.sha256}')">
+                      <i data-lucide="rotate-ccw"></i> Restore
+                    </button>
+                    <button class="btn btn-sm btn-secondary" style="color:var(--danger);" title="Permanently delete from disk" onclick="deleteQuarantinedFile('${item.sha256}')">
+                      <i data-lucide="trash-2"></i> Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             `).join('')}
@@ -780,6 +824,8 @@ function attachEvents() {
   window.toggleRule = toggleRule;
   window.saveConfig = saveConfig;
   window.restoreFile = restoreFile;
+  window.deleteQuarantinedFile = deleteQuarantinedFile;
+  window.purgeQuarantine = purgeQuarantine;
   window.toggleDiscoveredRoot = toggleDiscoveredRoot;
   window.toggleCustomRoot = toggleCustomRoot;
   window.addCustomRoot = addCustomRoot;
