@@ -19,6 +19,7 @@ const state = {
   selectedPath: '',
   pickerItems: [],
   showPickerModal: false,
+  selectedScanPaths: [],
 };
 
 // Initialize App
@@ -71,7 +72,27 @@ function setTab(tabName) {
   renderApp();
 }
 
-// Directory Browser Logic
+// Directory Browser Logic & Multi-Path Queue
+function addPathToQueue(path) {
+  if (!path) return;
+  const cleanPath = path.replace(/\\/g, '/');
+  if (!state.selectedScanPaths.includes(cleanPath)) {
+    state.selectedScanPaths.push(cleanPath);
+    showToast(`Added to scan queue: ${cleanPath.split('/').pop() || cleanPath}`, 'info');
+    renderApp();
+  }
+}
+
+function removePathFromQueue(path) {
+  state.selectedScanPaths = state.selectedScanPaths.filter(p => p !== path);
+  renderApp();
+}
+
+function clearQueue() {
+  state.selectedScanPaths = [];
+  renderApp();
+}
+
 async function openPickerModal(initialPath = '') {
   state.showPickerModal = true;
   state.selectedPath = initialPath;
@@ -101,6 +122,12 @@ async function fetchBrowsePath(path = '') {
 
 // Scanning Engine Execution
 async function startScan(roots = null, autoDiscover = false) {
+  if (autoDiscover && (!state.discoveredRoots || state.discoveredRoots.length === 0)) {
+    showToast('No Minecraft installations auto-detected. Please select a directory manually.', 'info');
+    openPickerModal();
+    return;
+  }
+
   try {
     let url = `/scan/?auto_discover=${autoDiscover}`;
     if (roots && roots.length > 0) {
@@ -121,7 +148,7 @@ async function startScan(roots = null, autoDiscover = false) {
       state.activeTab = 'scanner';
       renderApp();
       connectWebSocket(data.job_id);
-      showToast('Malware scan started...', 'info');
+      showToast(`Malware scan started for ${roots ? roots.length : 'auto'} target(s)...`, 'info');
     }
   } catch (err) {
     showToast('Scan start failed: ' + err.message, 'error');
@@ -288,11 +315,11 @@ function renderDashboard() {
 
       <div class="card hero-card">
         <div>
-          <div class="hero-title"><i data-lucide="folder-search" style="color:var(--success)"></i> Select Directory</div>
-          <div class="hero-desc">Select any custom folder or .jar mod file on your disk to scan.</div>
+          <div class="hero-title"><i data-lucide="folder-search" style="color:var(--success)"></i> Select Directories</div>
+          <div class="hero-desc">Select and queue custom folders or .jar mod files on your disk to scan together.</div>
         </div>
         <button class="btn btn-secondary" onclick="openPickerModal()">
-          <i data-lucide="folder-open"></i> Choose Directory...
+          <i data-lucide="folder-open"></i> Select Directories...
         </button>
       </div>
 
@@ -329,10 +356,13 @@ function renderDashboard() {
       <div class="browser-list">
         ${state.discoveredRoots.length === 0 ? '<div style="padding:12px; color:var(--text-muted);">No Minecraft folders found.</div>' : ''}
         ${state.discoveredRoots.map(root => `
-          <div class="browser-item" onclick="startScan(['${root.replace(/\\/g, '/')}'])">
+          <div class="browser-item">
             <i data-lucide="folder-check" style="color:var(--primary)"></i>
             <span style="flex:1; font-family:var(--font-mono); font-size:0.85rem;">${root}</span>
-            <span class="btn btn-sm btn-secondary">Start Scan</span>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-sm btn-secondary" onclick="addPathToQueue('${root.replace(/\\/g, '/')}')"><i data-lucide="plus"></i> Queue</button>
+              <button class="btn btn-sm btn-primary" onclick="startScan(['${root.replace(/\\/g, '/')}'])"><i data-lucide="play"></i> Scan Now</button>
+            </div>
           </div>
         `).join('')}
       </div>
@@ -356,7 +386,7 @@ function renderScanner() {
           </div>
         </div>
         <button class="btn btn-secondary" onclick="openPickerModal()">
-          <i data-lucide="folder-plus"></i> New Scan...
+          <i data-lucide="folder-plus"></i> Select Targets...
         </button>
       </div>
 
@@ -591,34 +621,61 @@ function renderPickerModal() {
       <div class="modal-card" onclick="event.stopPropagation()">
         <div class="modal-header">
           <div class="modal-title">
-            <i data-lucide="folder-search" style="color:var(--primary)"></i> Select Directory or File
+            <i data-lucide="folder-search" style="color:var(--primary)"></i> Select Scan Targets
           </div>
           <button class="btn btn-sm btn-secondary" onclick="closePickerModal()"><i data-lucide="x"></i></button>
         </div>
 
         <div class="modal-body">
-          <div class="path-bar">
-            <input type="text" id="custom-path-input" class="input-field" value="${state.pickerPath}">
+          <div class="path-bar" style="display:flex; gap:8px;">
+            <input type="text" id="custom-path-input" class="input-field" style="flex:1;" value="${state.pickerPath}">
             <button class="btn btn-secondary" onclick="fetchBrowsePath(document.getElementById('custom-path-input').value)">
               <i data-lucide="corner-down-left"></i> Open
             </button>
+            <button class="btn btn-primary" onclick="addPathToQueue(document.getElementById('custom-path-input').value)">
+              <i data-lucide="plus"></i> Add Path
+            </button>
           </div>
 
-          <div class="browser-list">
+          <div class="browser-list" style="margin-top:12px;">
             ${state.pickerItems.map(item => `
-              <div class="browser-item" onclick="fetchBrowsePath('${item.path.replace(/\\/g, '/')}')">
-                <i data-lucide="${item.is_dir ? 'folder' : 'file-archive'}" style="color:${item.is_dir ? 'var(--primary)' : 'var(--warning)'}"></i>
-                <span style="flex:1; font-family:var(--font-mono); font-size:0.85rem;">${item.name}</span>
-                ${item.is_archive ? '<span class="badge badge-suspicious">Mod Archive</span>' : ''}
+              <div class="browser-item" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                <div style="display:flex; align-items:center; gap:10px; flex:1; cursor:pointer; overflow:hidden;" onclick="fetchBrowsePath('${item.path.replace(/\\/g, '/')}')">
+                  <i data-lucide="${item.is_dir ? 'folder' : 'file-archive'}" style="color:${item.is_dir ? 'var(--primary)' : 'var(--warning)'}"></i>
+                  <span style="font-family:var(--font-mono); font-size:0.85rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${item.name}</span>
+                  ${item.is_archive ? '<span class="badge badge-suspicious">Mod Archive</span>' : ''}
+                </div>
+                ${!item.is_parent ? `
+                  <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); addPathToQueue('${item.path.replace(/\\/g, '/')}')">
+                    <i data-lucide="plus"></i> Add
+                  </button>
+                ` : ''}
               </div>
             `).join('')}
           </div>
+
+          ${state.selectedScanPaths.length > 0 ? `
+            <div style="margin-top:16px; padding:12px; background:rgba(99, 102, 241, 0.08); border:1px solid rgba(99, 102, 241, 0.2); border-radius:8px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <span style="font-weight:600; font-size:0.85rem; color:var(--primary);">Queued Targets (${state.selectedScanPaths.length})</span>
+                <button class="btn btn-sm btn-secondary" style="font-size:0.75rem;" onclick="clearQueue()">Clear All</button>
+              </div>
+              <div style="display:flex; flex-wrap:wrap; gap:6px; max-height:100px; overflow-y:auto;">
+                ${state.selectedScanPaths.map(p => `
+                  <span class="badge badge-clean" style="font-family:var(--font-mono); font-size:0.75rem; display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.08);">
+                    ${p}
+                    <i data-lucide="x" style="cursor:pointer; width:12px; height:12px;" onclick="removePathFromQueue('${p}')"></i>
+                  </span>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
         </div>
 
-        <div class="modal-footer">
+        <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center; margin-top:16px;">
           <button class="btn btn-secondary" onclick="closePickerModal()">Cancel</button>
           <button class="btn btn-primary" onclick="startSelectedScan()">
-            <i data-lucide="play"></i> Scan Selected Directory
+            <i data-lucide="play"></i> Start Scan (${state.selectedScanPaths.length > 0 ? `${state.selectedScanPaths.length} Target(s)` : 'Current Folder'})
           </button>
         </div>
       </div>
@@ -627,9 +684,17 @@ function renderPickerModal() {
 }
 
 function startSelectedScan() {
-  const path = state.pickerPath;
+  let targets = [...state.selectedScanPaths];
+  if (targets.length === 0 && state.pickerPath) {
+    targets = [state.pickerPath];
+  }
+  if (targets.length === 0) {
+    showToast('Please select at least one directory or file to scan.', 'info');
+    return;
+  }
+  state.selectedScanPaths = [];
   closePickerModal();
-  startScan([path]);
+  startScan(targets);
 }
 
 function attachEvents() {
@@ -644,4 +709,7 @@ function attachEvents() {
   window.toggleRule = toggleRule;
   window.saveConfig = saveConfig;
   window.restoreFile = restoreFile;
+  window.addPathToQueue = addPathToQueue;
+  window.removePathFromQueue = removePathFromQueue;
+  window.clearQueue = clearQueue;
 }
