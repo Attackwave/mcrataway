@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
 from mcrataway.config import UserConfig
+from mcrataway.constants import SCANNER_VERSION
 from mcrataway.discovery.os_paths import discover_roots
 from mcrataway.rules.updater import RuleUpdater
 
@@ -30,7 +31,7 @@ class ConfigUpdateModel(BaseModel):
 @router.get("/health")
 async def health() -> dict[str, str]:
     """Health check."""
-    return {"status": "ok"}
+    return {"status": "ok", "version": SCANNER_VERSION}
 
 
 @router.get("/roots")

@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from mcrataway.config import UserConfig, ensure_config_dir
+from mcrataway.constants import SCANNER_VERSION
 from mcrataway.core.quarantine import QuarantineManager
 from mcrataway.server.auth import verify_token
 from mcrataway.server.jobs import JobRegistry
@@ -53,7 +54,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="mcrataway",
-        version="1.0.0",
+        version=SCANNER_VERSION,
         lifespan=lifespan,
     )
 
