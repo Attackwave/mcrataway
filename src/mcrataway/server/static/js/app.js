@@ -305,11 +305,11 @@ function renderDashboard() {
     <div class="grid-3">
       <div class="card hero-card">
         <div>
-          <div class="hero-title"><i data-lucide="zap" style="color:var(--primary)"></i> Auto-Scan Minecraft</div>
-          <div class="hero-desc">Automatically scans all detected installations (.minecraft, PrismLauncher, CurseForge, MultiMC, ATLauncher).</div>
+          <div class="hero-title"><i data-lucide="zap" style="color:var(--primary)"></i> Scan Detected Installations</div>
+          <div class="hero-desc">Scans all detected Minecraft installations (.minecraft, PrismLauncher, CurseForge, MultiMC, ATLauncher).</div>
         </div>
         <button class="btn btn-primary" onclick="startScan(null, true)">
-          <i data-lucide="play"></i> Start Auto-Scan
+          <i data-lucide="play"></i> Start Scan
         </button>
       </div>
 
@@ -360,8 +360,7 @@ function renderDashboard() {
             <i data-lucide="folder-check" style="color:var(--primary)"></i>
             <span style="flex:1; font-family:var(--font-mono); font-size:0.85rem;">${root}</span>
             <div style="display:flex; gap:8px;">
-              <button class="btn btn-sm btn-secondary" onclick="addPathToQueue('${root.replace(/\\/g, '/')}')"><i data-lucide="plus"></i> Queue</button>
-              <button class="btn btn-sm btn-primary" onclick="startScan(['${root.replace(/\\/g, '/')}'])"><i data-lucide="play"></i> Scan Now</button>
+              <button class="btn btn-sm btn-primary" onclick="addPathToQueue('${root.replace(/\\/g, '/')}'); openPickerModal();"><i data-lucide="plus"></i> Add to Scan Queue</button>
             </div>
           </div>
         `).join('')}
