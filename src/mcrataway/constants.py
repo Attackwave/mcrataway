@@ -5,7 +5,7 @@ from pathlib import Path
 
 # Scanner metadata
 SCANNER_NAME = "mcrataway"
-SCANNER_VERSION = "0.1.0"
+SCANNER_VERSION = "1.0.0"
 
 # Default server bind
 DEFAULT_HOST = "127.0.0.1"

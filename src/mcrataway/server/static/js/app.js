@@ -240,7 +240,7 @@ function renderHeader() {
           <i data-lucide="shield-alert" style="color:#fff; width:24px; height:24px;"></i>
         </div>
         <span>mcrataway</span>
-        <span class="brand-version">v0.1.0</span>
+        <span class="brand-version">v1.0.0</span>
       </div>
 
       <nav>

@@ -51,7 +51,7 @@ export default function App() {
       </main>
 
       <footer className="border-t border-[var(--border-color)] py-3 text-center text-sm text-[var(--text-secondary)]">
-        mcrataway v0.1.0 — Minecraft mod malware scanner
+        mcrataway v1.0.0 — Minecraft mod malware scanner
       </footer>
     </div>
   )
