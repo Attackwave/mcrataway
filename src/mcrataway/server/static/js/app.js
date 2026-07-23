@@ -858,11 +858,11 @@ function renderConfirmModal() {
           <button class="btn btn-sm btn-secondary" onclick="closeConfirmModal()"><i data-lucide="x"></i></button>
         </div>
 
-        <div class="modal-body" style="padding:16px 0; color:var(--text-main); font-size:0.95rem; line-height:1.5;">
+        <div class="modal-body" style="padding: 24px; color:var(--text-main); font-size:0.95rem; line-height:1.6;">
           ${message || 'Are you sure you want to proceed?'}
         </div>
 
-        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:12px; margin-top:16px;">
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:12px;">
           <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancel</button>
           <button class="btn btn-primary" style="background:#ef4444; border-color:#ef4444;" onclick="handleConfirmAction()">
             <i data-lucide="${icon || 'check'}"></i> ${confirmText || 'Confirm'}
