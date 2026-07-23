@@ -14,12 +14,13 @@ const state = {
   quarantineItems: [],
   rules: [],
   discoveredRoots: [],
+  disabledDiscoveredRoots: [],
+  disabledCustomRoots: [],
   config: {},
   pickerPath: '',
   selectedPath: '',
   pickerItems: [],
   showPickerModal: false,
-  selectedScanPaths: [],
 };
 
 // Initialize App
@@ -72,27 +73,94 @@ function setTab(tabName) {
   renderApp();
 }
 
-// Directory Browser Logic & Multi-Path Queue
-function addPathToQueue(path) {
+// Target Root Selection & Checkbox Management
+function getScanTargets() {
+  const targets = [];
+  for (const root of state.discoveredRoots) {
+    if (!state.disabledDiscoveredRoots.includes(root)) {
+      targets.push(root);
+    }
+  }
+  const customRoots = state.config.custom_roots || [];
+  for (const root of customRoots) {
+    if (!state.disabledCustomRoots.includes(root)) {
+      targets.push(root);
+    }
+  }
+  return targets;
+}
+
+function toggleDiscoveredRoot(root) {
+  if (state.disabledDiscoveredRoots.includes(root)) {
+    state.disabledDiscoveredRoots = state.disabledDiscoveredRoots.filter(r => r !== root);
+  } else {
+    state.disabledDiscoveredRoots.push(root);
+  }
+  renderApp();
+}
+
+function toggleCustomRoot(root) {
+  if (state.disabledCustomRoots.includes(root)) {
+    state.disabledCustomRoots = state.disabledCustomRoots.filter(r => r !== root);
+  } else {
+    state.disabledCustomRoots.push(root);
+  }
+  renderApp();
+}
+
+async function addCustomRoot(path) {
   if (!path) return;
   const cleanPath = path.replace(/\\/g, '/');
-  if (!state.selectedScanPaths.includes(cleanPath)) {
-    state.selectedScanPaths.push(cleanPath);
-    showToast(`Added to scan queue: ${cleanPath.split('/').pop() || cleanPath}`, 'info');
-    renderApp();
+  const existing = state.config.custom_roots || [];
+  if (existing.includes(cleanPath)) {
+    showToast('Directory is already in your target list', 'info');
+    return;
+  }
+
+  const updatedCustomRoots = [...existing, cleanPath];
+  state.config.custom_roots = updatedCustomRoots;
+
+  try {
+    const res = await fetch('/system/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ custom_roots: updatedCustomRoots }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      state.config = data.config;
+      showToast(`Added custom directory: ${cleanPath.split('/').pop() || cleanPath}`, 'success');
+      renderApp();
+    }
+  } catch (err) {
+    showToast('Failed to save custom directory', 'error');
   }
 }
 
-function removePathFromQueue(path) {
-  state.selectedScanPaths = state.selectedScanPaths.filter(p => p !== path);
-  renderApp();
+async function removeCustomRoot(root) {
+  const existing = state.config.custom_roots || [];
+  const updatedCustomRoots = existing.filter(r => r !== root);
+  state.config.custom_roots = updatedCustomRoots;
+  state.disabledCustomRoots = state.disabledCustomRoots.filter(r => r !== root);
+
+  try {
+    const res = await fetch('/system/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ custom_roots: updatedCustomRoots }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      state.config = data.config;
+      showToast('Removed custom directory', 'info');
+      renderApp();
+    }
+  } catch (err) {
+    showToast('Failed to remove custom directory', 'error');
+  }
 }
 
-function clearQueue() {
-  state.selectedScanPaths = [];
-  renderApp();
-}
-
+// Directory Browser Logic
 async function openPickerModal(initialPath = '') {
   state.showPickerModal = true;
   state.selectedPath = initialPath;
@@ -122,16 +190,16 @@ async function fetchBrowsePath(path = '') {
 
 // Scanning Engine Execution
 async function startScan(roots = null, autoDiscover = false) {
-  if (autoDiscover && (!state.discoveredRoots || state.discoveredRoots.length === 0)) {
-    showToast('No Minecraft installations auto-detected. Please select a directory manually.', 'info');
-    openPickerModal();
+  const targetRoots = roots || getScanTargets();
+  if (!autoDiscover && (!targetRoots || targetRoots.length === 0)) {
+    showToast('Please check at least one directory to scan.', 'info');
     return;
   }
 
   try {
     let url = `/scan/?auto_discover=${autoDiscover}`;
-    if (roots && roots.length > 0) {
-      for (const r of roots) {
+    if (targetRoots && targetRoots.length > 0) {
+      for (const r of targetRoots) {
         url += `&roots=${encodeURIComponent(r)}`;
       }
     }
@@ -148,7 +216,7 @@ async function startScan(roots = null, autoDiscover = false) {
       state.activeTab = 'scanner';
       renderApp();
       connectWebSocket(data.job_id);
-      showToast(`Malware scan started for ${roots ? roots.length : 'auto'} target(s)...`, 'info');
+      showToast(`Malware scan started for ${targetRoots.length} target directory(ies)...`, 'info');
     }
   } catch (err) {
     showToast('Scan start failed: ' + err.message, 'error');
@@ -301,25 +369,35 @@ function renderHeader() {
 }
 
 function renderDashboard() {
+  const targets = getScanTargets();
+  const customRoots = state.config.custom_roots || [];
+  const canScan = targets.length > 0;
+
   return `
     <div class="grid-3">
       <div class="card hero-card">
         <div>
-          <div class="hero-title"><i data-lucide="zap" style="color:var(--primary)"></i> Scan Detected Installations</div>
-          <div class="hero-desc">Scans all detected Minecraft installations (.minecraft, PrismLauncher, CurseForge, MultiMC, ATLauncher).</div>
+          <div class="hero-title"><i data-lucide="shield-check" style="color:var(--primary)"></i> Run Malware Scan</div>
+          <div class="hero-desc">Scans all checked target directories using active threat rule packs.</div>
         </div>
-        <button class="btn btn-primary" onclick="startScan(null, true)">
-          <i data-lucide="play"></i> Start Scan
-        </button>
+        ${canScan ? `
+          <button class="btn btn-primary" onclick="startScan()">
+            <i data-lucide="play"></i> Start Scan (${targets.length} Target${targets.length > 1 ? 's' : ''})
+          </button>
+        ` : `
+          <button class="btn btn-primary" disabled style="opacity:0.4; cursor:not-allowed;" title="Check at least one directory below to enable scan">
+            <i data-lucide="play"></i> Start Scan (No Targets Selected)
+          </button>
+        `}
       </div>
 
       <div class="card hero-card">
         <div>
-          <div class="hero-title"><i data-lucide="folder-search" style="color:var(--success)"></i> Select Directories</div>
-          <div class="hero-desc">Select and queue custom folders or .jar mod files on your disk to scan together.</div>
+          <div class="hero-title"><i data-lucide="folder-plus" style="color:var(--success)"></i> Add Custom Directory</div>
+          <div class="hero-desc">Browse and add custom mod folders or .jar files to your target scan list.</div>
         </div>
         <button class="btn btn-secondary" onclick="openPickerModal()">
-          <i data-lucide="folder-open"></i> Select Directories...
+          <i data-lucide="folder-open"></i> Browse Directory...
         </button>
       </div>
 
@@ -349,21 +427,52 @@ function renderDashboard() {
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" style="margin-bottom: 24px;">
       <h3 style="margin-bottom:16px; font-weight:600; display:flex; align-items:center; gap:8px;">
-        <i data-lucide="folder"></i> Auto-Detected Folders
+        <i data-lucide="folder-check"></i> Auto-Detected Folders
       </h3>
       <div class="browser-list">
-        ${state.discoveredRoots.length === 0 ? '<div style="padding:12px; color:var(--text-muted);">No Minecraft folders found.</div>' : ''}
-        ${state.discoveredRoots.map(root => `
-          <div class="browser-item">
-            <i data-lucide="folder-check" style="color:var(--primary)"></i>
-            <span style="flex:1; font-family:var(--font-mono); font-size:0.85rem;">${root}</span>
-            <div style="display:flex; gap:8px;">
-              <button class="btn btn-sm btn-primary" onclick="addPathToQueue('${root.replace(/\\/g, '/')}'); openPickerModal();"><i data-lucide="plus"></i> Add to Scan Queue</button>
+        ${state.discoveredRoots.length === 0 ? '<div style="padding:12px; color:var(--text-muted);">No Minecraft folders auto-detected on this system.</div>' : ''}
+        ${state.discoveredRoots.map(root => {
+          const isChecked = !state.disabledDiscoveredRoots.includes(root);
+          return `
+            <div class="browser-item" style="display:flex; align-items:center; gap:12px;">
+              <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleDiscoveredRoot('${root}')" style="accent-color:var(--primary); width:18px; height:18px; cursor:pointer;">
+              <i data-lucide="folder" style="color:${isChecked ? 'var(--primary)' : 'var(--text-muted)'}"></i>
+              <span style="flex:1; font-family:var(--font-mono); font-size:0.85rem; opacity:${isChecked ? '1' : '0.5'};">${root}</span>
+              <span class="badge badge-clean" style="font-size:0.7rem;">Auto-Discovered</span>
             </div>
-          </div>
-        `).join('')}
+          `;
+        }).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h3 style="font-weight:600; display:flex; align-items:center; gap:8px;">
+          <i data-lucide="folder-plus"></i> User-Added Folders
+        </h3>
+        <button class="btn btn-sm btn-secondary" onclick="openPickerModal()">
+          <i data-lucide="plus"></i> Add Custom Directory...
+        </button>
+      </div>
+
+      <div class="browser-list">
+        ${customRoots.length === 0 ? '<div style="padding:16px; color:var(--text-muted); text-align:center;">No custom directories added yet. Click "+ Add Custom Directory" above to add your own folders.</div>' : ''}
+        ${customRoots.map(root => {
+          const isChecked = !state.disabledCustomRoots.includes(root);
+          return `
+            <div class="browser-item" style="display:flex; align-items:center; gap:12px;">
+              <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleCustomRoot('${root}')" style="accent-color:var(--primary); width:18px; height:18px; cursor:pointer;">
+              <i data-lucide="folder-cog" style="color:${isChecked ? 'var(--success)' : 'var(--text-muted)'}"></i>
+              <span style="flex:1; font-family:var(--font-mono); font-size:0.85rem; opacity:${isChecked ? '1' : '0.5'};">${root}</span>
+              <span class="badge badge-suspicious" style="font-size:0.7rem;">Custom Directory</span>
+              <button class="btn btn-sm btn-secondary" style="color:var(--danger);" title="Remove Directory" onclick="removeCustomRoot('${root}')">
+                <i data-lucide="trash-2"></i>
+              </button>
+            </div>
+          `;
+        }).join('')}
       </div>
     </div>
   `;
@@ -372,6 +481,7 @@ function renderDashboard() {
 function renderScanner() {
   const maliciousCount = state.findings.filter(f => f.verdict === 'MALICIOUS').length;
   const suspiciousCount = state.findings.filter(f => f.verdict === 'SUSPICIOUS').length;
+  const targets = getScanTargets();
 
   return `
     <div class="card" style="margin-bottom: 24px;">
@@ -385,7 +495,7 @@ function renderScanner() {
           </div>
         </div>
         <button class="btn btn-secondary" onclick="openPickerModal()">
-          <i data-lucide="folder-plus"></i> Select Targets...
+          <i data-lucide="folder-plus"></i> Add Targets...
         </button>
       </div>
 
@@ -620,7 +730,7 @@ function renderPickerModal() {
       <div class="modal-card" onclick="event.stopPropagation()">
         <div class="modal-header">
           <div class="modal-title">
-            <i data-lucide="folder-search" style="color:var(--primary)"></i> Select Scan Targets
+            <i data-lucide="folder-search" style="color:var(--primary)"></i> Select Target Directory
           </div>
           <button class="btn btn-sm btn-secondary" onclick="closePickerModal()"><i data-lucide="x"></i></button>
         </div>
@@ -630,9 +740,6 @@ function renderPickerModal() {
             <input type="text" id="custom-path-input" class="input-field" style="flex:1;" value="${state.pickerPath}">
             <button class="btn btn-secondary" onclick="fetchBrowsePath(document.getElementById('custom-path-input').value)">
               <i data-lucide="corner-down-left"></i> Open
-            </button>
-            <button class="btn btn-primary" onclick="addPathToQueue(document.getElementById('custom-path-input').value)">
-              <i data-lucide="plus"></i> Add Path
             </button>
           </div>
 
@@ -644,37 +751,15 @@ function renderPickerModal() {
                   <span style="font-family:var(--font-mono); font-size:0.85rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${item.name}</span>
                   ${item.is_archive ? '<span class="badge badge-suspicious">Mod Archive</span>' : ''}
                 </div>
-                ${!item.is_parent ? `
-                  <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); addPathToQueue('${item.path.replace(/\\/g, '/')}')">
-                    <i data-lucide="plus"></i> Add
-                  </button>
-                ` : ''}
               </div>
             `).join('')}
           </div>
-
-          ${state.selectedScanPaths.length > 0 ? `
-            <div style="margin-top:16px; padding:12px; background:rgba(99, 102, 241, 0.08); border:1px solid rgba(99, 102, 241, 0.2); border-radius:8px;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                <span style="font-weight:600; font-size:0.85rem; color:var(--primary);">Queued Targets (${state.selectedScanPaths.length})</span>
-                <button class="btn btn-sm btn-secondary" style="font-size:0.75rem;" onclick="clearQueue()">Clear All</button>
-              </div>
-              <div style="display:flex; flex-wrap:wrap; gap:6px; max-height:100px; overflow-y:auto;">
-                ${state.selectedScanPaths.map(p => `
-                  <span class="badge badge-clean" style="font-family:var(--font-mono); font-size:0.75rem; display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.08);">
-                    ${p}
-                    <i data-lucide="x" style="cursor:pointer; width:12px; height:12px;" onclick="removePathFromQueue('${p}')"></i>
-                  </span>
-                `).join('')}
-              </div>
-            </div>
-          ` : ''}
         </div>
 
         <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center; margin-top:16px;">
           <button class="btn btn-secondary" onclick="closePickerModal()">Cancel</button>
-          <button class="btn btn-primary" onclick="startSelectedScan()">
-            <i data-lucide="play"></i> Start Scan (${state.selectedScanPaths.length > 0 ? `${state.selectedScanPaths.length} Target(s)` : 'Current Folder'})
+          <button class="btn btn-primary" onclick="addCustomRootAndClose(state.pickerPath)">
+            <i data-lucide="plus"></i> Add to User-Added Folders
           </button>
         </div>
       </div>
@@ -682,18 +767,9 @@ function renderPickerModal() {
   `;
 }
 
-function startSelectedScan() {
-  let targets = [...state.selectedScanPaths];
-  if (targets.length === 0 && state.pickerPath) {
-    targets = [state.pickerPath];
-  }
-  if (targets.length === 0) {
-    showToast('Please select at least one directory or file to scan.', 'info');
-    return;
-  }
-  state.selectedScanPaths = [];
+function addCustomRootAndClose(path) {
+  addCustomRoot(path);
   closePickerModal();
-  startScan(targets);
 }
 
 function attachEvents() {
@@ -703,12 +779,13 @@ function attachEvents() {
   window.closePickerModal = closePickerModal;
   window.fetchBrowsePath = fetchBrowsePath;
   window.startScan = startScan;
-  window.startSelectedScan = startSelectedScan;
   window.triggerRuleUpdate = triggerRuleUpdate;
   window.toggleRule = toggleRule;
   window.saveConfig = saveConfig;
   window.restoreFile = restoreFile;
-  window.addPathToQueue = addPathToQueue;
-  window.removePathFromQueue = removePathFromQueue;
-  window.clearQueue = clearQueue;
+  window.toggleDiscoveredRoot = toggleDiscoveredRoot;
+  window.toggleCustomRoot = toggleCustomRoot;
+  window.addCustomRoot = addCustomRoot;
+  window.removeCustomRoot = removeCustomRoot;
+  window.addCustomRootAndClose = addCustomRootAndClose;
 }

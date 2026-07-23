@@ -16,6 +16,7 @@ router = APIRouter(prefix="/system", tags=["system"])
 
 
 class ConfigUpdateModel(BaseModel):
+    custom_roots: list[str] | None = None
     max_workers: int | None = None
     quarantine_suspicious: bool | None = None
     quarantine_malicious: bool | None = None
