@@ -39,6 +39,12 @@ def main() -> None:
     help="Override quarantine setting from config.",
 )
 @click.option(
+    "--quarantine-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Custom directory path to store quarantined files.",
+)
+@click.option(
     "--rules",
     "rule_pack",
     type=click.Path(exists=True),
@@ -50,6 +56,7 @@ def scan(
     paths: tuple[str, ...],
     report_path: str | None,
     quarantine: bool | None,
+    quarantine_dir: Path | None,
     rule_pack: str | None,
     auto_discover: bool,
 ) -> None:
@@ -69,12 +76,18 @@ def scan(
     if quarantine is not None:
         config.quarantine_malicious = quarantine
 
+    if quarantine_dir is not None:
+        config.quarantine_dir = str(quarantine_dir)
+
     rule_loader = RulePackLoader()
     rule_loader.load_defaults()
     if rule_pack:
         rule_loader.load_pack(Path(rule_pack))
 
+    q_target = Path(config.quarantine_dir) if config.quarantine_dir else None
+
     quarantine_mgr = QuarantineManager(
+        quarantine_dir=q_target,
         do_quarantine_malicious=config.quarantine_malicious,
         do_quarantine_suspicious=config.quarantine_suspicious,
     )

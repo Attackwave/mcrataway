@@ -65,6 +65,9 @@ mcrataway scan --auto --report report.json
 # Scan specific directories or JAR files and automatically quarantine threats
 mcrataway scan /path/to/mods /path/to/suspicious.jar --quarantine
 
+# Specify a custom quarantine directory path
+mcrataway scan /path/to/mods --quarantine --quarantine-dir /path/to/quarantine_folder
+
 # Start the Web UI server
 mcrataway serve --host 127.0.0.1 --port 8765
 ```
@@ -78,11 +81,11 @@ mcrataway serve
 ```
 
 Then open your browser at `http://127.0.0.1:8765` to:
-* Trigger interactive system scans with live WebSocket updates.
-* Browse discovered Minecraft launcher roots.
-* Toggle active threat signature rule packs.
-* Manage quarantined files with full restore capability.
-* Fetch latest remote threat intelligence signatures.
+* **Target Management**: Select auto-detected launcher roots or add custom mod directories with toggle checkboxes.
+* **Live Malware Scanner**: View real-time WebSocket scan progress, file counts, and detailed threat detections.
+* **Rule Packs**: Enable or disable individual threat detection rules and fetch latest remote signature packs.
+* **Quarantine Management**: Safely isolate, restore, permanently delete, or empty quarantine.
+* **Settings**: Configure parallel workers, quarantine triggers, and custom quarantine folder paths.
 
 ---
 

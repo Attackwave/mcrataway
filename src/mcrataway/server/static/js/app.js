@@ -302,6 +302,7 @@ async function saveConfig(event) {
     max_workers: parseInt(formData.get('max_workers'), 10),
     quarantine_malicious: formData.get('quarantine_malicious') === 'on',
     quarantine_suspicious: formData.get('quarantine_suspicious') === 'on',
+    quarantine_dir: formData.get('quarantine_dir') || '',
   };
 
   try {
@@ -777,6 +778,12 @@ function renderSettings() {
           <label style="display:block; font-weight:500; margin-bottom:8px;">Parallel Workers (max_workers)</label>
           <input type="number" name="max_workers" class="input-field" value="${state.config.max_workers || 4}" min="1" max="32" style="width:100px;">
           <div style="color:var(--text-dim); font-size:0.8rem; margin-top:4px;">Number of parallel threads for file scanning.</div>
+        </div>
+
+        <div style="margin-bottom:20px;">
+          <label style="display:block; font-weight:500; margin-bottom:8px;">Quarantine Directory Path (quarantine_dir)</label>
+          <input type="text" name="quarantine_dir" class="input-field" value="${state.config.quarantine_dir || ''}" style="width:100%;">
+          <div style="color:var(--text-dim); font-size:0.8rem; margin-top:4px;">Custom folder path where isolated files are safely quarantined.</div>
         </div>
 
         <div style="margin-bottom:20px;">

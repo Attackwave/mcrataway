@@ -20,6 +20,7 @@ class ConfigUpdateModel(BaseModel):
     max_workers: int | None = None
     quarantine_suspicious: bool | None = None
     quarantine_malicious: bool | None = None
+    quarantine_dir: str | None = None
     scan_archives: bool | None = None
     scan_scripts: bool | None = None
     scan_configs: bool | None = None
@@ -96,6 +97,8 @@ async def update_config(model: ConfigUpdateModel, request: Request) -> dict[str,
 
     config.save()
     request.app.state.config = config
+    if hasattr(request.app.state, "quarantine_manager") and config.quarantine_dir:
+        request.app.state.quarantine_manager.quarantine_dir = Path(config.quarantine_dir)
     return {"success": True, "config": config.__dict__}
 
 
