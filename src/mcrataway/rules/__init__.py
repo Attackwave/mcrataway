@@ -1,0 +1,1 @@
+"""Rules — signature-based detection."""

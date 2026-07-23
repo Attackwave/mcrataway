@@ -1,0 +1,43 @@
+# Python Bytecode & Caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.eggs/
+
+# Build & Packaging Outputs
+build/
+dist/
+dist_win/
+*.spec
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Node.js & Frontend Artifacts
+node_modules/
+web/node_modules/
+web/dist/
+web/.vite/
+npm-debug.log*
+
+# Internal Plans & Test Data
+plan.md
+testdata/
+
+# Test Outputs & Local Logs
+scan.txt
+*.log
+report.json
+
+# Operating System & IDE Files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
