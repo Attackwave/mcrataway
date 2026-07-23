@@ -370,7 +370,7 @@ function purgeQuarantine() {
     icon: 'shield-alert',
     onConfirm: async () => {
       try {
-        const res = await fetch('/quarantine/', { method: 'DELETE' });
+        const res = await fetch('/quarantine/purge', { method: 'POST' });
         const data = await res.json();
         if (data.success) {
           showToast(`Quarantine emptied (${data.purged_count} file(s) deleted)`, 'info');
