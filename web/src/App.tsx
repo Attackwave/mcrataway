@@ -17,7 +17,7 @@ const navItems: { id: Page; label: string; icon: string }[] = [
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>('scan')
-  const [version, setVersion] = useState<string>('1.0.0')
+  const [version, setVersion] = useState<string>('1.1.0')
 
   useEffect(() => {
     fetch('/system/health')

@@ -13,7 +13,7 @@ except Exception:
     try:
         from mcrataway import __version__ as SCANNER_VERSION
     except Exception:
-        SCANNER_VERSION = "1.0.0"
+        SCANNER_VERSION = "1.1.0"
 
 # Default server bind
 DEFAULT_HOST = "127.0.0.1"
