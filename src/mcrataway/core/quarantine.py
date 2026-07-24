@@ -167,10 +167,9 @@ class QuarantineManager:
             if placeholder.exists():
                 placeholder.unlink()
 
-            # Update manifest
-            manifest_data["restored"] = True
-            manifest_data["restore_timestamp"] = datetime.now(UTC).isoformat()
-            manifest_path.write_text(json.dumps(manifest_data, indent=2))
+            # Clean up quarantine directory for this restored item
+            with contextlib.suppress(Exception):
+                shutil.rmtree(quarantine_path)
 
             return True
 
@@ -178,7 +177,7 @@ class QuarantineManager:
             return False
 
     def list_quarantined(self) -> list[QuarantineManifest]:
-        """List all quarantined items."""
+        """List all actively quarantined items present on disk."""
         results: list[QuarantineManifest] = []
         if not self.quarantine_dir.exists():
             return results
@@ -189,7 +188,11 @@ class QuarantineManager:
                 if manifest_path.exists():
                     try:
                         data = json.loads(manifest_path.read_text())
-                        # Only pass known fields; ignore extras like restore_timestamp
+                        if data.get("restored", False):
+                            continue
+                        quarantined_name = Path(data.get("quarantined_path", "")).name
+                        if quarantined_name and not (item / quarantined_name).exists():
+                            continue
                         results.append(QuarantineManifest(
                             original_path=data["original_path"],
                             sha256=data["sha256"],
@@ -198,7 +201,7 @@ class QuarantineManager:
                             confidence=data["confidence"],
                             findings=data["findings"],
                             timestamp=data["timestamp"],
-                            restored=data.get("restored", False),
+                            restored=False,
                         ))
                     except Exception:
                         continue
