@@ -25,6 +25,9 @@ const state = {
   confirmModal: null,
 };
 
+// Expose state globally on window to guarantee accessibility across all handlers
+window.state = state;
+
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
   init();
@@ -184,7 +187,15 @@ async function removeCustomRoot(root) {
   }
 }
 
-// Directory Browser Logic
+// Directory Browser Logic & Global Picker Helpers
+function openQuarantinePicker() {
+  openPickerModal(state.config.quarantine_dir || '', 'quarantine_dir');
+}
+
+function openCustomRootPicker() {
+  openPickerModal('', 'custom_root');
+}
+
 async function openPickerModal(initialPath = '', mode = 'custom_root') {
   state.showPickerModal = true;
   state.pickerMode = mode;
@@ -472,11 +483,11 @@ function renderDashboard() {
   const canScan = targets.length > 0;
 
   return `
-    <div class="grid-3">
+    <div class="grid-2" style="margin-bottom: 24px;">
       <div class="card hero-card">
         <div>
           <div class="hero-title"><i data-lucide="shield-check" style="color:var(--primary)"></i> Run Malware Scan</div>
-          <div class="hero-desc">Scans all checked target directories using active threat rule packs.</div>
+          <div class="hero-desc">Scans all checked target directories below using active threat rule packs.</div>
         </div>
         ${canScan ? `
           <button class="btn btn-primary" onclick="startScan()">
@@ -487,16 +498,6 @@ function renderDashboard() {
             <i data-lucide="play"></i> Start Scan (No Targets Selected)
           </button>
         `}
-      </div>
-
-      <div class="card hero-card">
-        <div>
-          <div class="hero-title"><i data-lucide="folder-plus" style="color:var(--success)"></i> Add Custom Directory</div>
-          <div class="hero-desc">Browse and add custom mod folders or .jar files to your target scan list.</div>
-        </div>
-        <button class="btn btn-secondary" onclick="openPickerModal('', 'custom_root')">
-          <i data-lucide="folder-open"></i> Browse Directory...
-        </button>
       </div>
 
       <div class="card hero-card">
@@ -550,7 +551,7 @@ function renderDashboard() {
         <h3 style="font-weight:600; display:flex; align-items:center; gap:8px;">
           <i data-lucide="folder-plus"></i> User-Added Folders
         </h3>
-        <button class="btn btn-sm btn-secondary" onclick="openPickerModal('', 'custom_root')">
+        <button class="btn btn-sm btn-secondary" onclick="openCustomRootPicker()">
           <i data-lucide="plus"></i> Add Custom Directory...
         </button>
       </div>
@@ -808,8 +809,8 @@ function renderSettings() {
         <div style="margin-bottom:20px;">
           <label style="display:block; font-weight:500; margin-bottom:8px;">Quarantine Directory Path (quarantine_dir)</label>
           <div style="display:flex; gap:8px;">
-            <input type="text" id="quarantine-dir-input" name="quarantine_dir" class="input-field" value="${state.config.quarantine_dir || ''}" style="flex:1;" placeholder="Default: ~/.mcrataway/quarantine" onclick="openPickerModal(state.config.quarantine_dir || '', 'quarantine_dir')">
-            <button type="button" class="btn btn-secondary" onclick="openPickerModal(state.config.quarantine_dir || '', 'quarantine_dir')">
+            <input type="text" id="quarantine-dir-input" name="quarantine_dir" class="input-field" value="${state.config.quarantine_dir || ''}" style="flex:1;" placeholder="Default: ~/.mcrataway/quarantine" onclick="openQuarantinePicker()">
+            <button type="button" class="btn btn-secondary" onclick="openQuarantinePicker()">
               <i data-lucide="folder-open"></i> Browse...
             </button>
           </div>
@@ -927,8 +928,11 @@ function addCustomRootAndClose(path) {
 
 function attachEvents() {
   // Global helper functions attached to window for inline handlers
+  window.state = state;
   window.setTab = setTab;
   window.openPickerModal = openPickerModal;
+  window.openQuarantinePicker = openQuarantinePicker;
+  window.openCustomRootPicker = openCustomRootPicker;
   window.closePickerModal = closePickerModal;
   window.closeConfirmModal = closeConfirmModal;
   window.handleConfirmAction = handleConfirmAction;
