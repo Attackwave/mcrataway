@@ -8,7 +8,7 @@ Thank you for your interest in contributing to **mcRATAway**! We welcome contrib
 
 ### Prerequisites
 
-* Python 3.10 or higher
+* Python 3.12 or higher
 * `pip` and `git`
 * Node.js & npm (only required if contributing to the Web UI frontend)
 
@@ -69,6 +69,7 @@ Always add corresponding unit tests under `tests/unit/` when introducing new det
 1. **Keep PRs Focused**: Each pull request should address a single feature, bugfix, or improvement.
 2. **Clear Commit Messages**: Write descriptive commit messages explaining *what* and *why*.
 3. **Pass CI**: Ensure unit tests and static type checking pass on all operating systems (Linux, Windows, macOS).
+4. **No Direct Pushes to `main`**: `main` is a protected branch. All changes must go through a pull request; direct pushes are rejected by GitHub. The three CI matrix checks (Linux, Windows, macOS on Python 3.12) must pass before a PR can be merged.
 
 ---
 
