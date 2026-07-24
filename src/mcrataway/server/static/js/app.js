@@ -2,6 +2,22 @@
  * mcrataway Web Application Frontend App
  */
 
+// Detector Tooltip Descriptions (English)
+const DETECTOR_DESCRIPTIONS = {
+  D01: 'Process Execution: Detects Runtime.exec and ProcessBuilder calls',
+  D02: 'Network I/O: Detects raw sockets, HTTP requests, and Discord webhook exfiltration',
+  D03: 'Dynamic Class Loading: Flags URLClassLoader and bytecode injection',
+  D04: 'FS / JAR Modification: Detects unauthorized file or host JAR writes',
+  D05: 'System Persistence: Uncovers startup hooks, Registry keys, and systemd/crontab persistence',
+  D06: 'Unsafe Deserialization: Pinpoints vulnerable ObjectInputStream readObject payload execution',
+  D07: 'Native Library Loading: Flags System.load/JNI native dynamic binaries (.dll, .so, .dylib)',
+  D08: 'Credential & Token Theft: Detects targeting of Discord tokens and Mojang/Microsoft session tokens',
+  D09: 'Obfuscation Analysis: Measures code entropy, identifies S-box ciphers, and synthetic class structures',
+  D10: 'Reflection Indirect: Uncovers hidden invocations using MethodHandles and LambdaMetafactory',
+  D11: 'On-Chain C2: Detects blockchain-based command-and-control infrastructure (e.g. eth_call)',
+  D12: 'Resource & Datapack Exploits: Scans .mcfunction, PNG, and JSON assets for buffer overflow and script abuse',
+};
+
 // Global State
 const state = {
   activeTab: 'dashboard',
@@ -11,15 +27,25 @@ const state = {
   scannedFiles: 0,
   totalFiles: 0,
   findings: [],
+  findingsFilter: 'ALL', // 'ALL' | 'MALICIOUS' | 'SUSPICIOUS' | 'CLEAN'
+  findingsSearch: '',
+  expandedFindings: {},
   quarantineItems: [],
   rules: [],
   discoveredRoots: [],
+  disabledDiscoveredRoots: [],
+  disabledCustomRoots: [],
   config: {},
   pickerPath: '',
   selectedPath: '',
   pickerItems: [],
   showPickerModal: false,
+  pickerMode: 'custom_root', // 'custom_root' | 'quarantine_dir'
+  confirmModal: null,
 };
+
+// Expose state globally on window to guarantee accessibility across all handlers
+window.state = state;
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
@@ -34,21 +60,25 @@ async function init() {
 
 async function loadInitialData() {
   try {
-    const [rootsRes, rulesRes, quarantineRes, configRes] = await Promise.all([
+    const [rootsRes, rulesRes, quarantineRes, configRes, healthRes] = await Promise.all([
       fetch('/system/roots').then(r => r.json()),
       fetch('/rules/').then(r => r.json()),
       fetch('/quarantine/').then(r => r.json()),
       fetch('/system/config').then(r => r.json()),
+      fetch('/system/health').then(r => r.json()).catch(() => ({})),
     ]);
 
     state.discoveredRoots = rootsRes || [];
     state.rules = rulesRes || [];
     state.quarantineItems = quarantineRes || [];
     state.config = configRes || {};
+    if (healthRes && healthRes.version) {
+      state.version = healthRes.version;
+    }
 
     renderApp();
   } catch (err) {
-    showToast('Fehler beim Laden der Systemdaten: ' + err.message, 'error');
+    showToast('Failed to load system data: ' + err.message, 'error');
   }
 }
 
@@ -67,9 +97,158 @@ function setTab(tabName) {
   renderApp();
 }
 
-// Directory Browser Logic
-async function openPickerModal(initialPath = '') {
+// Custom Confirm Modal Dialog System
+function showConfirmModal(options) {
+  state.confirmModal = options;
+  renderApp();
+}
+
+function closeConfirmModal() {
+  state.confirmModal = null;
+  renderApp();
+}
+
+function handleConfirmAction() {
+  if (state.confirmModal && typeof state.confirmModal.onConfirm === 'function') {
+    const action = state.confirmModal.onConfirm;
+    state.confirmModal = null;
+    renderApp();
+    action();
+  } else {
+    closeConfirmModal();
+  }
+}
+
+// Export Scan Report (JSON download)
+function exportReport() {
+  if (!state.findings || state.findings.length === 0) {
+    showToast('No scan findings available to export', 'info');
+    return;
+  }
+
+  const reportData = {
+    scanner: 'mcRATAway',
+    version: state.version || '1.0.0',
+    timestamp: new Date().toISOString(),
+    total_findings: state.findings.length,
+    malicious_count: state.findings.filter(f => f.verdict === 'MALICIOUS').length,
+    suspicious_count: state.findings.filter(f => f.verdict === 'SUSPICIOUS').length,
+    clean_count: state.findings.filter(f => f.verdict === 'CLEAN').length,
+    results: state.findings,
+  };
+
+  const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `mcrataway_scan_report_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  showToast('Scan report exported successfully!', 'success');
+}
+
+// Target Root Selection & Checkbox Management
+function getScanTargets() {
+  const targets = [];
+  for (const root of state.discoveredRoots) {
+    if (!state.disabledDiscoveredRoots.includes(root)) {
+      targets.push(root);
+    }
+  }
+  const customRoots = state.config.custom_roots || [];
+  for (const root of customRoots) {
+    if (!state.disabledCustomRoots.includes(root)) {
+      targets.push(root);
+    }
+  }
+  return targets;
+}
+
+function toggleDiscoveredRoot(root) {
+  if (state.disabledDiscoveredRoots.includes(root)) {
+    state.disabledDiscoveredRoots = state.disabledDiscoveredRoots.filter(r => r !== root);
+  } else {
+    state.disabledDiscoveredRoots.push(root);
+  }
+  renderApp();
+}
+
+function toggleCustomRoot(root) {
+  if (state.disabledCustomRoots.includes(root)) {
+    state.disabledCustomRoots = state.disabledCustomRoots.filter(r => r !== root);
+  } else {
+    state.disabledCustomRoots.push(root);
+  }
+  renderApp();
+}
+
+async function addCustomRoot(path) {
+  if (!path) return;
+  const cleanPath = path.replace(/\\/g, '/');
+  const existing = state.config.custom_roots || [];
+  if (existing.includes(cleanPath)) {
+    showToast('Directory is already in your target list', 'info');
+    return;
+  }
+
+  const updatedCustomRoots = [...existing, cleanPath];
+  state.config.custom_roots = updatedCustomRoots;
+
+  try {
+    const res = await fetch('/system/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ custom_roots: updatedCustomRoots }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      state.config = data.config;
+      showToast(`Added custom directory: ${cleanPath.split('/').pop() || cleanPath}`, 'success');
+      renderApp();
+    }
+  } catch (err) {
+    showToast('Failed to save custom directory', 'error');
+  }
+}
+
+async function removeCustomRoot(root) {
+  const existing = state.config.custom_roots || [];
+  const updatedCustomRoots = existing.filter(r => r !== root);
+  state.config.custom_roots = updatedCustomRoots;
+  state.disabledCustomRoots = state.disabledCustomRoots.filter(r => r !== root);
+
+  try {
+    const res = await fetch('/system/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ custom_roots: updatedCustomRoots }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      state.config = data.config;
+      showToast('Removed custom directory', 'info');
+      renderApp();
+    }
+  } catch (err) {
+    showToast('Failed to remove custom directory', 'error');
+  }
+}
+
+// Directory Browser Logic & Global Picker Helpers
+function openQuarantinePicker() {
+  openPickerModal(state.config.quarantine_dir || '', 'quarantine_dir');
+}
+
+function openCustomRootPicker() {
+  openPickerModal('', 'custom_root');
+}
+
+async function openPickerModal(initialPath = '', mode = 'custom_root') {
   state.showPickerModal = true;
+  state.pickerMode = mode;
   state.selectedPath = initialPath;
   await fetchBrowsePath(initialPath);
 }
@@ -87,20 +266,81 @@ async function fetchBrowsePath(path = '') {
     state.pickerPath = data.current_path;
     state.pickerItems = data.items || [];
     if (data.parent_path) {
-      state.pickerItems.unshift({ name: '.. (Übergeordnetes Verzeichnis)', path: data.parent_path, is_dir: true, is_parent: true });
+      state.pickerItems.unshift({ name: '.. (Parent Directory)', path: data.parent_path, is_dir: true, is_parent: true });
     }
     renderApp();
   } catch (err) {
-    showToast('Verzeichnis konnte nicht geladen werden', 'error');
+    showToast('Could not load directory', 'error');
+  }
+}
+
+async function setQuarantineDirAndClose(path) {
+  if (!path) return;
+  const cleanPath = path.replace(/\\/g, '/');
+  state.config.quarantine_dir = cleanPath;
+  closePickerModal();
+
+  try {
+    const res = await fetch('/system/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quarantine_dir: cleanPath }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      state.config = data.config;
+      showToast('Quarantine directory updated successfully', 'success');
+      renderApp();
+    }
+  } catch (err) {
+    showToast('Failed to update quarantine directory', 'error');
+  }
+}
+
+// Findings Filter, Search & Accordion Helpers
+function setFindingsFilter(filter) {
+  state.findingsFilter = filter;
+  renderApp();
+}
+
+function setFindingsSearch(query) {
+  state.findingsSearch = query;
+  renderApp();
+}
+
+function toggleExpandFinding(key) {
+  state.expandedFindings[key] = !state.expandedFindings[key];
+  renderApp();
+}
+
+async function quarantineFileNow(sha256, filePath) {
+  try {
+    const url = `/quarantine/${sha256}?file_path=${encodeURIComponent(filePath)}`;
+    const res = await fetch(url, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('File successfully quarantined', 'success');
+      await loadInitialData();
+    } else {
+      showToast('Quarantine failed: ' + (data.error || 'Unknown error'), 'error');
+    }
+  } catch (err) {
+    showToast('Quarantine failed', 'error');
   }
 }
 
 // Scanning Engine Execution
 async function startScan(roots = null, autoDiscover = false) {
+  const targetRoots = roots || getScanTargets();
+  if (!autoDiscover && (!targetRoots || targetRoots.length === 0)) {
+    showToast('Please check at least one directory to scan.', 'info');
+    return;
+  }
+
   try {
     let url = `/scan/?auto_discover=${autoDiscover}`;
-    if (roots && roots.length > 0) {
-      for (const r of roots) {
+    if (targetRoots && targetRoots.length > 0) {
+      for (const r of targetRoots) {
         url += `&roots=${encodeURIComponent(r)}`;
       }
     }
@@ -117,10 +357,10 @@ async function startScan(roots = null, autoDiscover = false) {
       state.activeTab = 'scanner';
       renderApp();
       connectWebSocket(data.job_id);
-      showToast('Malware-Scan gestartet...', 'info');
+      showToast(`Malware scan started for ${targetRoots.length} target directory(ies)...`, 'info');
     }
   } catch (err) {
-    showToast('Scan-Start fehlgeschlagen: ' + err.message, 'error');
+    showToast('Scan start failed: ' + err.message, 'error');
   }
 }
 
@@ -146,29 +386,33 @@ function connectWebSocket(jobId) {
       state.findings.unshift(data.verdict);
       renderApp();
     } else if (data.type === 'done') {
-      showToast('Scan abgeschlossen!', 'success');
-      state.currentJob.status = 'COMPLETED';
+      showToast('Scan completed!', 'success');
+      state.scanProgress = 100;
+      if (state.currentJob) {
+        state.currentJob.status = 'COMPLETED';
+      }
+      renderApp();
       loadInitialData();
     }
   };
 
   state.ws.onerror = () => {
-    showToast('WebSocket-Verbindung getrennt', 'error');
+    showToast('WebSocket connection disconnected', 'error');
   };
 }
 
 // Dynamic Rule Updates
 async function triggerRuleUpdate() {
   try {
-    showToast('Lade neue Bedrohungssignaturen herunter...', 'info');
+    showToast('Downloading latest threat signatures...', 'info');
     const res = await fetch('/system/update-rules', { method: 'POST' });
     const data = await res.json();
     if (data.success) {
-      showToast(`${data.downloaded_count} Signatur-Packs erfolgreich aktualisiert!`, 'success');
+      showToast(`${data.downloaded_count} signature pack(s) successfully updated!`, 'success');
       await loadInitialData();
     }
   } catch (err) {
-    showToast('Signatur-Update fehlgeschlagen: ' + err.message, 'error');
+    showToast('Signature update failed: ' + err.message, 'error');
   }
 }
 
@@ -180,6 +424,7 @@ async function saveConfig(event) {
     max_workers: parseInt(formData.get('max_workers'), 10),
     quarantine_malicious: formData.get('quarantine_malicious') === 'on',
     quarantine_suspicious: formData.get('quarantine_suspicious') === 'on',
+    quarantine_dir: formData.get('quarantine_dir') || '',
   };
 
   try {
@@ -190,27 +435,75 @@ async function saveConfig(event) {
     });
     const data = await res.json();
     if (data.success) {
-      showToast('Einstellungen erfolgreich gespeichert', 'success');
+      showToast('Settings saved successfully', 'success');
       state.config = data.config;
       renderApp();
     }
   } catch (err) {
-    showToast('Speichern fehlgeschlagen', 'error');
+    showToast('Saving failed', 'error');
   }
 }
 
 // Restore Quarantined File
 async function restoreFile(sha256) {
   try {
-    const res = await fetch(`/quarantine/${sha256}`, { method: 'DELETE' });
+    const res = await fetch(`/quarantine/${sha256}/restore`, { method: 'POST' });
     const data = await res.json();
     if (data.success) {
-      showToast('Datei erfolgreich wiederhergestellt', 'success');
+      showToast('File successfully restored', 'success');
       await loadInitialData();
+    } else {
+      showToast('Restoration failed: ' + (data.error || 'Unknown error'), 'error');
     }
   } catch (err) {
-    showToast('Wiederherstellung fehlgeschlagen', 'error');
+    showToast('Restoration failed', 'error');
   }
+}
+
+// Permanently Delete Quarantined File (uses custom modal confirm dialog)
+function deleteQuarantinedFile(sha256) {
+  showConfirmModal({
+    title: 'Permanently Delete File',
+    message: 'Are you sure you want to permanently delete this file from quarantine? The file will be erased from disk and cannot be recovered.',
+    confirmText: 'Delete Permanently',
+    icon: 'trash-2',
+    onConfirm: async () => {
+      try {
+        const res = await fetch(`/quarantine/${sha256}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('File permanently deleted from quarantine', 'info');
+          await loadInitialData();
+        } else {
+          showToast('Deletion failed: ' + (data.error || 'Unknown error'), 'error');
+        }
+      } catch (err) {
+        showToast('Deletion failed', 'error');
+      }
+    },
+  });
+}
+
+// Purge All Quarantined Files (uses custom modal confirm dialog)
+function purgeQuarantine() {
+  showConfirmModal({
+    title: 'Empty Quarantine',
+    message: 'Are you sure you want to PERMANENTLY DELETE ALL items in quarantine? All isolated threat files will be wiped from disk.',
+    confirmText: 'Empty Quarantine',
+    icon: 'shield-alert',
+    onConfirm: async () => {
+      try {
+        const res = await fetch('/quarantine/purge', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Quarantine emptied (${data.purged_count} file(s) deleted)`, 'info');
+          await loadInitialData();
+        }
+      } catch (err) {
+        showToast('Failed to empty quarantine', 'error');
+      }
+    },
+  });
 }
 
 // Render Functions
@@ -226,6 +519,7 @@ function renderApp() {
       ${state.activeTab === 'settings' ? renderSettings() : ''}
     </main>
     ${state.showPickerModal ? renderPickerModal() : ''}
+    ${state.confirmModal ? renderConfirmModal() : ''}
   `;
 
   lucide.createIcons();
@@ -233,14 +527,21 @@ function renderApp() {
 }
 
 function renderHeader() {
+  const isRunning = state.currentJob && state.currentJob.status === 'RUNNING';
+
   return `
-    <header>
-      <div class="brand">
-        <div class="brand-icon">
-          <i data-lucide="shield-alert" style="color:#fff; width:24px; height:24px;"></i>
+    <header style="padding:14px 32px;">
+      <div class="brand" style="display:flex; align-items:center; gap:14px;">
+        <div class="brand-icon ${isRunning ? 'radar-pulse' : ''}" style="width:52px; height:52px; padding:0; overflow:hidden; border-radius:10px; background:transparent; display:flex; align-items:center; justify-content:center; box-shadow:0 0 20px rgba(99, 102, 241, 0.35); border:1px solid rgba(255,255,255,0.15);">
+          <img src="/static/images/logo.png" alt="mcRATAway Logo" style="width:100%; height:100%; object-fit:cover;">
         </div>
-        <span>mcrataway</span>
-        <span class="brand-version">v0.1.0</span>
+        <div style="display:flex; flex-direction:column; justify-content:center;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:1.35rem; font-weight:700; letter-spacing:-0.5px;">mcrataway</span>
+            <span class="brand-version" style="font-size:0.7rem; padding:1px 6px;">v${state.version || '1.0.0'}</span>
+          </div>
+          <div style="font-size:0.7rem; color:var(--text-muted); font-weight:600; letter-spacing:0.8px; margin-top:1px;">MALWARE SCANNER</div>
+        </div>
       </div>
 
       <nav>
@@ -248,99 +549,182 @@ function renderHeader() {
           <i data-lucide="layout-dashboard"></i> Dashboard
         </button>
         <button class="nav-link ${state.activeTab === 'scanner' ? 'active' : ''}" onclick="setTab('scanner')">
-          <i data-lucide="radar"></i> Scanner
+          <i data-lucide="radar"></i> Scanner ${isRunning ? '<span class="status-dot" style="margin-left:6px;"></span>' : ''}
         </button>
         <button class="nav-link ${state.activeTab === 'quarantine' ? 'active' : ''}" onclick="setTab('quarantine')">
-          <i data-lucide="box"></i> Quarantäne (${state.quarantineItems.length})
+          <i data-lucide="box"></i> Quarantine (${state.quarantineItems.length})
         </button>
         <button class="nav-link ${state.activeTab === 'rules' ? 'active' : ''}" onclick="setTab('rules')">
-          <i data-lucide="file-code"></i> Regel-Packs
+          <i data-lucide="file-code"></i> Rule Packs
         </button>
         <button class="nav-link ${state.activeTab === 'settings' ? 'active' : ''}" onclick="setTab('settings')">
-          <i data-lucide="settings"></i> Einstellungen
+          <i data-lucide="settings"></i> Settings
         </button>
       </nav>
 
       <div class="status-badge">
         <span class="status-dot"></span>
-        <span>Scanner-Engine Aktiv</span>
+        <span>${isRunning ? 'Scanning Active...' : 'Scanner Engine Active'}</span>
       </div>
     </header>
   `;
 }
 
 function renderDashboard() {
+  const targets = getScanTargets();
+  const customRoots = state.config.custom_roots || [];
+  const canScan = targets.length > 0;
+
   return `
-    <div class="grid-3">
+    <div class="grid-2" style="margin-bottom: 24px;">
       <div class="card hero-card">
         <div>
-          <div class="hero-title"><i data-lucide="zap" style="color:var(--primary)"></i> Auto-Scan Minecraft</div>
-          <div class="hero-desc">Durchsucht automatisch alle erkannten Installationen (.minecraft, PrismLauncher, CurseForge, MultiMC, ATLauncher).</div>
+          <div class="hero-title"><i data-lucide="shield-check" style="color:var(--primary)"></i> Run Malware Scan</div>
+          <div class="hero-desc">Scans all checked target directories below using active threat rule packs.</div>
         </div>
-        <button class="btn btn-primary" onclick="startScan(null, true)">
-          <i data-lucide="play"></i> Auto-Scan Gestartet
-        </button>
+        ${canScan ? `
+          <button class="btn btn-primary" onclick="startScan()">
+            <i data-lucide="play"></i> Start Scan (${targets.length} Target${targets.length > 1 ? 's' : ''})
+          </button>
+        ` : `
+          <button class="btn btn-primary" disabled style="opacity:0.4; cursor:not-allowed;" title="Check at least one directory below to enable scan">
+            <i data-lucide="play"></i> Start Scan (No Targets Selected)
+          </button>
+        `}
       </div>
 
       <div class="card hero-card">
         <div>
-          <div class="hero-title"><i data-lucide="folder-search" style="color:var(--success)"></i> Verzeichnis wählen</div>
-          <div class="hero-desc">Wähle gezielt einen beliebigen Ordner oder eine .jar Mod-Datei auf Deiner Festplatte zum Scannen aus.</div>
-        </div>
-        <button class="btn btn-secondary" onclick="openPickerModal()">
-          <i data-lucide="folder-open"></i> Verzeichnis wählen...
-        </button>
-      </div>
-
-      <div class="card hero-card">
-        <div>
-          <div class="hero-title"><i data-lucide="refresh-cw" style="color:var(--warning)"></i> Signatur-Updates</div>
-          <div class="hero-desc">Lade die neuesten Community-Regeln und Threat-Intelligence Muster gegen neue Obfuscator herunter.</div>
+          <div class="hero-title"><i data-lucide="refresh-cw" style="color:var(--warning)"></i> Signature Updates</div>
+          <div class="hero-desc">Download the latest community rules and threat intelligence patterns.</div>
         </div>
         <button class="btn btn-secondary" onclick="triggerRuleUpdate()">
-          <i data-lucide="download-cloud"></i> Signaturen Aktualisieren
+          <i data-lucide="download-cloud"></i> Update Signatures
         </button>
       </div>
     </div>
 
+    <!-- Drag & Drop Instant Quick Scan Zone -->
+    <div class="drop-zone" id="drop-zone" onclick="openCustomRootPicker()" style="margin-bottom: 24px;">
+      <i data-lucide="upload-cloud" style="width:36px; height:36px; color:var(--primary); margin-bottom:8px;"></i>
+      <div style="font-weight:600; font-size:1.05rem;">Quick Directory Target Selector</div>
+      <div style="color:var(--text-muted); font-size:0.85rem; margin-top:4px;">Click to browse and add custom Minecraft mod folders or JAR paths to your scan targets</div>
+    </div>
+
     <div class="grid-3">
       <div class="card stat-box">
-        <span class="stat-label">Erkannte Minecraft-Roots</span>
+        <span class="stat-label">Discovered Minecraft Roots</span>
         <span class="stat-value" style="color:var(--primary)">${state.discoveredRoots.length}</span>
       </div>
       <div class="card stat-box">
-        <span class="stat-label">Isolierte Quarantäne-Dateien</span>
+        <span class="stat-label">Quarantined Files</span>
         <span class="stat-value" style="color:var(--danger)">${state.quarantineItems.length}</span>
       </div>
       <div class="card stat-box">
-        <span class="stat-label">Aktive Regel-Packs</span>
+        <span class="stat-label">Active Rule Packs</span>
         <span class="stat-value" style="color:var(--success)">${state.rules.length}</span>
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" style="margin-bottom: 24px;">
       <h3 style="margin-bottom:16px; font-weight:600; display:flex; align-items:center; gap:8px;">
-        <i data-lucide="folder"></i> Automatisch Erkannte Ordner
+        <i data-lucide="folder-check"></i> Auto-Detected Folders
       </h3>
       <div class="browser-list">
-        ${state.discoveredRoots.length === 0 ? '<div style="padding:12px; color:var(--text-muted);">Keine Minecraft-Ordner gefunden.</div>' : ''}
-        ${state.discoveredRoots.map(root => `
-          <div class="browser-item" onclick="startScan(['${root.replace(/\\/g, '/')}'])">
-            <i data-lucide="folder-check" style="color:var(--primary)"></i>
-            <span style="flex:1; font-family:var(--font-mono); font-size:0.85rem;">${root}</span>
-            <span class="btn btn-sm btn-secondary">Scan Starten</span>
-          </div>
-        `).join('')}
+        ${state.discoveredRoots.length === 0 ? '<div style="padding:12px; color:var(--text-muted);">No Minecraft folders auto-detected on this system.</div>' : ''}
+        ${state.discoveredRoots.map(root => {
+          const isChecked = !state.disabledDiscoveredRoots.includes(root);
+          return `
+            <div class="browser-item" style="display:flex; align-items:center; gap:12px;">
+              <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleDiscoveredRoot('${root}')" style="accent-color:var(--primary); width:18px; height:18px; cursor:pointer;">
+              <i data-lucide="folder" style="color:${isChecked ? 'var(--primary)' : 'var(--text-muted)'}"></i>
+              <span style="flex:1; font-family:var(--font-mono); font-size:0.85rem; opacity:${isChecked ? '1' : '0.5'};">${root}</span>
+              <span class="badge badge-clean" style="font-size:0.7rem;">Auto-Discovered</span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h3 style="font-weight:600; display:flex; align-items:center; gap:8px;">
+          <i data-lucide="folder-plus"></i> User-Added Folders
+        </h3>
+        <button class="btn btn-sm btn-secondary" onclick="openCustomRootPicker()">
+          <i data-lucide="plus"></i> Add Custom Directory...
+        </button>
+      </div>
+
+      <div class="browser-list">
+        ${customRoots.length === 0 ? '<div style="padding:16px; color:var(--text-muted); text-align:center;">No custom directories added yet. Click "+ Add Custom Directory" above to add your own folders.</div>' : ''}
+        ${customRoots.map(root => {
+          const isChecked = !state.disabledCustomRoots.includes(root);
+          return `
+            <div class="browser-item" style="display:flex; align-items:center; gap:12px;">
+              <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleCustomRoot('${root}')" style="accent-color:var(--primary); width:18px; height:18px; cursor:pointer;">
+              <i data-lucide="folder-cog" style="color:${isChecked ? 'var(--success)' : 'var(--text-muted)'}"></i>
+              <span style="flex:1; font-family:var(--font-mono); font-size:0.85rem; opacity:${isChecked ? '1' : '0.5'};">${root}</span>
+              <span class="badge badge-suspicious" style="font-size:0.7rem;">Custom Directory</span>
+              <button class="btn btn-sm btn-secondary" style="color:var(--danger);" title="Remove Directory" onclick="removeCustomRoot('${root}')">
+                <i data-lucide="trash-2"></i>
+              </button>
+            </div>
+          `;
+        }).join('')}
       </div>
     </div>
   `;
 }
 
 function renderScanner() {
+  const totalCount = state.findings.length;
   const maliciousCount = state.findings.filter(f => f.verdict === 'MALICIOUS').length;
   const suspiciousCount = state.findings.filter(f => f.verdict === 'SUSPICIOUS').length;
+  const cleanCount = state.findings.filter(f => f.verdict === 'CLEAN').length;
+
+  // Filter & Search Logic
+  let filtered = state.findings;
+  if (state.findingsFilter !== 'ALL') {
+    filtered = filtered.filter(f => f.verdict === state.findingsFilter);
+  }
+  if (state.findingsSearch && state.findingsSearch.trim()) {
+    const q = state.findingsSearch.toLowerCase().trim();
+    filtered = filtered.filter(f => {
+      const pathMatch = f.file_path && f.file_path.toLowerCase().includes(q);
+      const shaMatch = f.sha256 && f.sha256.toLowerCase().includes(q);
+      const findingMatch = f.findings && f.findings.some(item =>
+        (item.detector_id && item.detector_id.toLowerCase().includes(q)) ||
+        (item.description && item.description.toLowerCase().includes(q)) ||
+        (item.matched_value && item.matched_value.toLowerCase().includes(q))
+      );
+      return pathMatch || shaMatch || findingMatch;
+    });
+  }
+
+  // Calculate Threat Distribution
+  const totalThreats = maliciousCount + suspiciousCount;
+  const malPercent = totalThreats > 0 ? (maliciousCount / totalThreats) * 100 : 0;
+  const suspPercent = totalThreats > 0 ? (suspiciousCount / totalThreats) * 100 : 0;
+
+  const isRunning = state.currentJob && state.currentJob.status === 'RUNNING';
 
   return `
+    ${!isRunning && state.findings.length === 0 ? `
+      <div class="card" style="margin-bottom:24px; text-align:center; padding:36px 24px; background:linear-gradient(135deg, rgba(15,23,42,0.9), rgba(30,41,59,0.6)); border:1px solid rgba(99,102,241,0.25);">
+        <div style="width:96px; height:96px; margin:0 auto 16px auto; border-radius:16px; overflow:hidden; box-shadow:0 0 30px rgba(99,102,241,0.4); border:1px solid rgba(255,255,255,0.2);">
+          <img src="/static/images/logo.png" alt="mcRATAway Cyber Shield Logo" style="width:100%; height:100%; object-fit:cover;">
+        </div>
+        <h2 style="font-size:1.5rem; font-weight:700; margin-bottom:6px;">Ready to Protect Your Minecraft Setup</h2>
+        <p style="color:var(--text-muted); font-size:0.95rem; max-width:540px; margin:0 auto 20px auto; line-height:1.5;">
+          Select your target directories on the Dashboard and click <strong>Start Scan</strong> to perform deep static bytecode analysis across all installed mods and scripts.
+        </p>
+        <button class="btn btn-primary" style="padding:10px 24px; font-size:0.95rem;" onclick="startScan()">
+          <i data-lucide="play"></i> Start Malware Scan
+        </button>
+      </div>
+    ` : ''}
+
     <div class="card" style="margin-bottom: 24px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <div>
@@ -348,18 +732,20 @@ function renderScanner() {
             <i data-lucide="radar" style="color:var(--primary)"></i> Live Malware Scanner
           </h2>
           <div style="color:var(--text-muted); font-size:0.9rem; margin-top:4px;">
-            ${state.currentJob ? `Job ID: ${state.currentJob.job_id}` : 'Bereit für neuen Scan.'}
+            ${state.currentJob ? `Job ID: ${state.currentJob.job_id}` : 'Ready for scan.'}
           </div>
         </div>
-        <button class="btn btn-secondary" onclick="openPickerModal()">
-          <i data-lucide="folder-plus"></i> Neuer Scan...
-        </button>
+        ${state.findings.length > 0 ? `
+          <button class="btn btn-secondary" onclick="exportReport()">
+            <i data-lucide="download"></i> Export Report (JSON)
+          </button>
+        ` : ''}
       </div>
 
       ${state.currentJob ? `
         <div class="progress-container">
           <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:0.9rem; font-weight:500;">
-            <span>Fortschritt: ${state.scannedFiles || 0} / ${state.totalFiles || '?'} Dateien</span>
+            <span>Progress: ${state.scannedFiles || 0} / ${state.totalFiles || '?'} files</span>
             <span>${(state.scanProgress || 0).toFixed(1)}%</span>
           </div>
           <div class="progress-bar-bg">
@@ -369,60 +755,132 @@ function renderScanner() {
       ` : ''}
 
       <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:16px; margin-top:20px;">
-        <div class="card stat-box" style="background:rgba(239, 68, 68, 0.08); border-color:rgba(239, 68, 68, 0.2);">
-          <span class="stat-label" style="color:#fca5a5;">Infiziert (Malicious)</span>
+        <div class="card stat-box" style="background:rgba(239, 68, 68, 0.08); border-color:rgba(239, 68, 68, 0.2); cursor:pointer;" onclick="setFindingsFilter('MALICIOUS')">
+          <span class="stat-label" style="color:#fca5a5;">Malicious</span>
           <span class="stat-value" style="color:#ef4444;">${maliciousCount}</span>
         </div>
-        <div class="card stat-box" style="background:rgba(245, 158, 11, 0.08); border-color:rgba(245, 158, 11, 0.2);">
-          <span class="stat-label" style="color:#fcd34d;">Verdächtig (Suspicious)</span>
+        <div class="card stat-box" style="background:rgba(245, 158, 11, 0.08); border-color:rgba(245, 158, 11, 0.2); cursor:pointer;" onclick="setFindingsFilter('SUSPICIOUS')">
+          <span class="stat-label" style="color:#fcd34d;">Suspicious</span>
           <span class="stat-value" style="color:#f59e0b;">${suspiciousCount}</span>
         </div>
-        <div class="card stat-box" style="background:rgba(16, 185, 129, 0.08); border-color:rgba(16, 185, 129, 0.2);">
-          <span class="stat-label" style="color:#6ee7b7;">Gescannte Dateien</span>
+        <div class="card stat-box" style="background:rgba(16, 185, 129, 0.08); border-color:rgba(16, 185, 129, 0.2); cursor:pointer;" onclick="setFindingsFilter('CLEAN')">
+          <span class="stat-label" style="color:#6ee7b7;">Clean / Scanned</span>
           <span class="stat-value" style="color:#10b981;">${state.scannedFiles}</span>
         </div>
       </div>
+
+      ${totalThreats > 0 ? `
+        <div style="margin-top:16px;">
+          <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:var(--text-muted); margin-bottom:6px;">
+            <span>Threat Severity Distribution</span>
+            <span>${maliciousCount} Malicious / ${suspiciousCount} Suspicious</span>
+          </div>
+          <div style="height:8px; background:rgba(255,255,255,0.05); border-radius:4px; overflow:hidden; display:flex;">
+            <div style="width:${malPercent}%; background:#ef4444;" title="Malicious: ${maliciousCount}"></div>
+            <div style="width:${suspPercent}%; background:#f59e0b;" title="Suspicious: ${suspiciousCount}"></div>
+          </div>
+        </div>
+      ` : ''}
     </div>
 
     <div class="card">
-      <h3 style="margin-bottom:16px; font-weight:600; display:flex; align-items:center; gap:8px;">
-        <i data-lucide="shield-alert"></i> Gefundene Bedrohungen & Befunde
-      </h3>
-      <div class="table-wrapper">
-        <table>
-          <thead>
-            <tr>
-              <th>Status</th>
-              <th>Datei</th>
-              <th>Erkennung / Befunde</th>
-              <th>SHA-256 Hash</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${state.findings.length === 0 ? '<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:32px;">Keine Bedrohungen im aktuellen Durchlauf gefunden.</td></tr>' : ''}
-            ${state.findings.map(f => `
-              <tr>
-                <td>
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; margin-bottom:20px;">
+        <h3 style="font-weight:600; display:flex; align-items:center; gap:8px;">
+          <i data-lucide="shield-alert"></i> Detected Threats & Findings (${filtered.length})
+        </h3>
+
+        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+          <!-- Quick Filter Buttons -->
+          <div style="display:flex; gap:6px; background:rgba(0,0,0,0.3); padding:4px; border-radius:8px; border:1px solid var(--border-color);">
+            <button class="btn btn-sm ${state.findingsFilter === 'ALL' ? 'btn-primary' : 'btn-secondary'}" style="padding:4px 10px; font-size:0.8rem;" onclick="setFindingsFilter('ALL')">
+              All (${totalCount})
+            </button>
+            <button class="btn btn-sm ${state.findingsFilter === 'MALICIOUS' ? 'btn-primary' : 'btn-secondary'}" style="padding:4px 10px; font-size:0.8rem; ${state.findingsFilter === 'MALICIOUS' ? 'background:#ef4444; border-color:#ef4444;' : 'color:#ef4444;'}" onclick="setFindingsFilter('MALICIOUS')">
+              🚨 Malicious (${maliciousCount})
+            </button>
+            <button class="btn btn-sm ${state.findingsFilter === 'SUSPICIOUS' ? 'btn-primary' : 'btn-secondary'}" style="padding:4px 10px; font-size:0.8rem; ${state.findingsFilter === 'SUSPICIOUS' ? 'background:#f59e0b; border-color:#f59e0b;' : 'color:#f59e0b;'}" onclick="setFindingsFilter('SUSPICIOUS')">
+              ⚠️ Suspicious (${suspiciousCount})
+            </button>
+            <button class="btn btn-sm ${state.findingsFilter === 'CLEAN' ? 'btn-primary' : 'btn-secondary'}" style="padding:4px 10px; font-size:0.8rem; ${state.findingsFilter === 'CLEAN' ? 'background:#10b981; border-color:#10b981;' : 'color:#10b981;'}" onclick="setFindingsFilter('CLEAN')">
+              ✅ Clean (${cleanCount})
+            </button>
+          </div>
+
+          <!-- Real-time Search Input -->
+          <div style="position:relative; min-width:240px;">
+            <input type="text" class="input-field" placeholder="Search file or rule ID..." value="${state.findingsSearch || ''}" oninput="setFindingsSearch(this.value)" style="padding-left:32px; font-size:0.85rem; height:34px;">
+            <i data-lucide="search" style="position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--text-muted); width:14px; height:14px;"></i>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        ${filtered.length === 0 ? '<div style="text-align:center; color:var(--text-muted); padding:36px; background:rgba(0,0,0,0.2); border-radius:8px;">No matching findings for the selected filter/search query.</div>' : ''}
+        ${filtered.map((f, idx) => {
+          const key = f.sha256 || f.file_path || idx;
+          const isExpanded = !!state.expandedFindings[key];
+          const fileName = f.file_path ? f.file_path.split('/').pop() : 'Unknown File';
+
+          return `
+            <div class="card" style="padding:0; overflow:hidden; background:rgba(15, 23, 42, 0.4); border:1px solid ${f.verdict === 'MALICIOUS' ? 'rgba(239, 68, 68, 0.3)' : f.verdict === 'SUSPICIOUS' ? 'rgba(245, 158, 11, 0.3)' : 'var(--border-color)'};">
+              <div style="padding:14px 18px; display:flex; align-items:center; justify-content:space-between; gap:16px; cursor:pointer;" onclick="toggleExpandFinding('${key}')">
+                <div style="display:flex; align-items:center; gap:12px; flex:1; overflow:hidden;">
+                  <i data-lucide="${isExpanded ? 'chevron-down' : 'chevron-right'}" style="color:var(--text-muted); width:18px; height:18px;"></i>
                   <span class="badge badge-${f.verdict.toLowerCase()}">${f.verdict}</span>
-                </td>
-                <td style="font-family:var(--font-mono); font-size:0.85rem; max-width:300px; word-break:break-all;">
-                  ${f.file_path}
-                </td>
-                <td>
-                  ${f.findings.map(finding => `
-                    <div style="margin-bottom:4px;">
-                      <strong style="color:var(--warning)">[${finding.detector_id}]</strong> ${finding.description}
-                      ${finding.matched_value ? `<div style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Treffer: ${finding.matched_value}</div>` : ''}
-                    </div>
-                  `).join('')}
-                </td>
-                <td style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-dim);">
-                  ${f.sha256 ? f.sha256.substring(0, 16) + '...' : '-'}
-                </td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
+                  <div style="overflow:hidden;">
+                    <div style="font-weight:600; font-family:var(--font-mono); font-size:0.9rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${fileName}</div>
+                    <div style="font-size:0.75rem; color:var(--text-muted); font-family:var(--font-mono); text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${f.file_path}</div>
+                  </div>
+                </div>
+
+                <div style="display:flex; align-items:center; gap:10px;">
+                  <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                    ${(f.findings || []).slice(0, 3).map(item => {
+                      const tooltip = DETECTOR_DESCRIPTIONS[item.detector_id] || item.description || item.detector_id;
+                      return `<span class="badge badge-warning" data-tooltip="${tooltip.replace(/"/g, '&quot;')}" style="font-size:0.7rem;">[${item.detector_id}]</span>`;
+                    }).join('')}
+                    ${(f.findings || []).length > 3 ? `<span class="badge badge-secondary" style="font-size:0.7rem;">+${(f.findings || []).length - 3} more</span>` : ''}
+                  </div>
+
+                  ${f.verdict !== 'CLEAN' && f.sha256 ? `
+                    <button class="btn btn-sm btn-secondary" style="color:var(--danger); border-color:rgba(239, 68, 68, 0.3);" title="Move file to quarantine" onclick="event.stopPropagation(); quarantineFileNow('${f.sha256}', '${f.file_path.replace(/'/g, "\\'")}')">
+                      <i data-lucide="box"></i> Quarantine
+                    </button>
+                  ` : ''}
+                </div>
+              </div>
+
+              ${isExpanded ? `
+                <div style="padding:16px 18px; border-top:1px solid var(--border-color); background:rgba(0,0,0,0.3);">
+                  <div style="margin-bottom:12px; display:flex; justify-content:space-between; font-size:0.8rem; color:var(--text-muted); font-family:var(--font-mono);">
+                    <span>Full Path: ${f.file_path}</span>
+                    <span>SHA-256: ${f.sha256 || '-'}</span>
+                  </div>
+
+                  ${(f.findings || []).length === 0 ? '<div style="color:var(--text-muted); font-size:0.85rem;">No specific threat signature triggered for this clean file.</div>' : ''}
+                  <div style="display:flex; flex-direction:column; gap:8px;">
+                    ${(f.findings || []).map(item => {
+                      const tooltip = DETECTOR_DESCRIPTIONS[item.detector_id] || item.description || item.detector_id;
+                      return `
+                        <div style="padding:10px 12px; background:rgba(15, 23, 42, 0.6); border-radius:6px; border:1px solid rgba(255,255,255,0.05);">
+                          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                            <strong style="color:var(--warning); font-size:0.85rem;" data-tooltip="${tooltip.replace(/"/g, '&quot;')}">[${item.detector_id}] ${item.description || ''}</strong>
+                            ${item.severity ? `<span class="badge badge-${item.severity === 'CRITICAL' || item.severity === 'HIGH' ? 'malicious' : 'suspicious'}" style="font-size:0.65rem;">${item.severity}</span>` : ''}
+                          </div>
+                          ${item.matched_value ? `
+                            <div style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted); margin-top:4px; word-break:break-all; background:rgba(0,0,0,0.4); padding:6px 10px; border-radius:4px;">
+                              Matched Payload: <span style="color:#6ee7b7;">${item.matched_value}</span>
+                            </div>
+                          ` : ''}
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('')}
       </div>
     </div>
   `;
@@ -434,25 +892,30 @@ function renderQuarantine() {
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
         <div>
           <h2 style="font-weight:600; display:flex; align-items:center; gap:10px;">
-            <i data-lucide="box" style="color:var(--danger)"></i> Quarantäne-Verwaltung
+            <i data-lucide="box" style="color:var(--danger)"></i> Quarantine Management
           </h2>
-          <div style="color:var(--text-muted); font-size:0.9rem; margin-top:4px;">Isolierte Dateien wurden sicher in den Quarantäne-Ordner verschoben.</div>
+          <div style="color:var(--text-muted); font-size:0.9rem; margin-top:4px;">Isolated files are stored safely. You can restore them to their original location or delete them permanently.</div>
         </div>
+        ${state.quarantineItems.length > 0 ? `
+          <button class="btn btn-secondary" style="color:var(--danger); border-color:rgba(239, 68, 68, 0.4);" onclick="purgeQuarantine()">
+            <i data-lucide="trash-2"></i> Empty Quarantine
+          </button>
+        ` : ''}
       </div>
 
       <div class="table-wrapper">
         <table>
           <thead>
             <tr>
-              <th>Original-Pfad</th>
-              <th>Bewertung</th>
-              <th>Datum</th>
+              <th>Original Path</th>
+              <th>Verdict</th>
+              <th>Date</th>
               <th>SHA-256 Hash</th>
-              <th>Aktion</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            ${state.quarantineItems.length === 0 ? '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:32px;">Keine isolierten Dateien in Quarantäne.</td></tr>' : ''}
+            ${state.quarantineItems.length === 0 ? '<tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:32px;">No files currently in quarantine.</td></tr>' : ''}
             ${state.quarantineItems.map(item => `
               <tr>
                 <td style="font-family:var(--font-mono); font-size:0.85rem;">${item.original_path}</td>
@@ -460,9 +923,14 @@ function renderQuarantine() {
                 <td style="font-size:0.85rem; color:var(--text-muted);">${new Date(item.timestamp).toLocaleString()}</td>
                 <td style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-dim);">${item.sha256.substring(0, 16)}...</td>
                 <td>
-                  <button class="btn btn-sm btn-secondary" onclick="restoreFile('${item.sha256}')">
-                    <i data-lucide="rotate-ccw"></i> Wiederherstellen
-                  </button>
+                  <div style="display:flex; gap:8px;">
+                    <button class="btn btn-sm btn-secondary" title="Restore file to original location" onclick="restoreFile('${item.sha256}')">
+                      <i data-lucide="rotate-ccw"></i> Restore
+                    </button>
+                    <button class="btn btn-sm btn-secondary" style="color:var(--danger);" title="Permanently delete from disk" onclick="deleteQuarantinedFile('${item.sha256}')">
+                      <i data-lucide="trash-2"></i> Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             `).join('')}
@@ -478,10 +946,10 @@ async function toggleRule(ruleId) {
   let updated;
   if (disabled.includes(ruleId)) {
     updated = disabled.filter(id => id !== ruleId);
-    showToast(`Regel ${ruleId} aktiviert`, 'success');
+    showToast(`Rule ${ruleId} enabled`, 'success');
   } else {
     updated = [...disabled, ruleId];
-    showToast(`Regel ${ruleId} deaktiviert`, 'info');
+    showToast(`Rule ${ruleId} disabled`, 'info');
   }
   state.config.disabled_rules = updated;
   try {
@@ -491,7 +959,7 @@ async function toggleRule(ruleId) {
       body: JSON.stringify({ disabled_rules: updated }),
     });
   } catch (err) {
-    showToast('Fehler beim Speichern der Regel-Einstellung', 'error');
+    showToast('Failed to save rule settings', 'error');
   }
   renderApp();
 }
@@ -504,12 +972,12 @@ function renderRules() {
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
         <div>
           <h2 style="font-weight:600; display:flex; align-items:center; gap:10px;">
-            <i data-lucide="file-code" style="color:var(--primary)"></i> Aktive Bedrohungs-Regelpacks & Signaturen
+            <i data-lucide="file-code" style="color:var(--primary)"></i> Active Threat Rule Packs & Signatures
           </h2>
-          <div style="color:var(--text-muted); font-size:0.9rem; margin-top:4px;">Klicke auf die Schalter, um einzelne Erkennungsregeln ein- oder auszuschalten.</div>
+          <div style="color:var(--text-muted); font-size:0.9rem; margin-top:4px;">Click toggles to enable or disable individual detection rules.</div>
         </div>
         <button class="btn btn-primary" onclick="triggerRuleUpdate()">
-          <i data-lucide="download-cloud"></i> Signaturen Aktualisieren
+          <i data-lucide="download-cloud"></i> Update Signatures
         </button>
       </div>
 
@@ -518,17 +986,18 @@ function renderRules() {
           <div class="card" style="background:rgba(255,255,255,0.02);">
             <div style="font-weight:600; font-size:1.1rem; margin-bottom:12px; color:var(--primary); display:flex; justify-content:space-between; align-items:center;">
               <span>Pack: ${pack.pack_id}</span>
-              <span class="badge badge-clean" style="font-size:0.7rem;">${pack.rule_count} Regeln</span>
+              <span class="badge badge-clean" style="font-size:0.7rem;">${pack.rule_count} Rules</span>
             </div>
             <div style="display:flex; flex-direction:column; gap:8px;">
               ${pack.rules.map(r => {
                 const isEnabled = !disabledList.includes(r.id);
+                const tooltip = DETECTOR_DESCRIPTIONS[r.id] || r.description;
                 return `
                   <div style="padding:10px 12px; background:rgba(0,0,0,0.3); border-radius:8px; font-size:0.85rem; border:1px solid ${isEnabled ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255,255,255,0.05)'}; opacity:${isEnabled ? '1' : '0.5'}; transition:all 0.2s;">
                     <div style="font-weight:600; color:var(--text-main); display:flex; justify-content:space-between; align-items:center;">
                       <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
                         <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="toggleRule('${r.id}')" style="accent-color:var(--primary); width:16px; height:16px;">
-                        <span>${r.id} <span style="font-size:0.75rem; color:var(--text-muted);">(${r.family})</span></span>
+                        <span data-tooltip="${tooltip.replace(/"/g, '&quot;')}">${r.id} <span style="font-size:0.75rem; color:var(--text-muted);">(${r.family})</span></span>
                       </label>
                       <span class="badge badge-${r.severity === 'critical' || r.severity === 'high' ? 'malicious' : 'suspicious'}" style="font-size:0.65rem;">${r.severity}</span>
                     </div>
@@ -546,75 +1015,143 @@ function renderRules() {
 
 function renderSettings() {
   return `
-    <div class="card" style="max-width:700px;">
+    <div class="card" style="max-width:700px; margin:0 auto;">
       <h2 style="font-weight:600; margin-bottom:20px; display:flex; align-items:center; gap:10px;">
-        <i data-lucide="settings" style="color:var(--primary)"></i> Scanner-Einstellungen
+        <i data-lucide="settings" style="color:var(--primary)"></i> Scanner Settings
       </h2>
 
       <form onsubmit="saveConfig(event)">
         <div style="margin-bottom:20px;">
-          <label style="display:block; font-weight:500; margin-bottom:8px;">Parallelismus / Multiprocessing (max_workers)</label>
+          <label style="display:block; font-weight:500; margin-bottom:8px;">Parallel Workers (max_workers)</label>
           <input type="number" name="max_workers" class="input-field" value="${state.config.max_workers || 4}" min="1" max="32" style="width:100px;">
-          <div style="color:var(--text-dim); font-size:0.8rem; margin-top:4px;">Anzahl der parallelen Threads beim Datei-Scan.</div>
+          <div style="color:var(--text-dim); font-size:0.8rem; margin-top:4px;">Number of parallel threads for file scanning.</div>
+        </div>
+
+        <div style="margin-bottom:20px;">
+          <label style="display:block; font-weight:500; margin-bottom:8px;">Quarantine Directory Path (quarantine_dir)</label>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="quarantine-dir-input" name="quarantine_dir" class="input-field" value="${state.config.quarantine_dir || ''}" style="flex:1;" placeholder="Default: ~/.mcrataway/quarantine" onclick="openQuarantinePicker()">
+            <button type="button" class="btn btn-secondary" onclick="openQuarantinePicker()">
+              <i data-lucide="folder-open"></i> Browse...
+            </button>
+          </div>
+          <div style="color:var(--text-dim); font-size:0.8rem; margin-top:6px;">
+            Default fallback path: <code style="font-family:var(--font-mono); color:var(--primary); background:rgba(99,102,241,0.15); padding:2px 8px; border-radius:4px; border:1px solid rgba(99,102,241,0.3);">~/.mcrataway/quarantine</code>
+          </div>
         </div>
 
         <div style="margin-bottom:20px;">
           <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
             <input type="checkbox" name="quarantine_malicious" ${state.config.quarantine_malicious ? 'checked' : ''}>
-            <span style="font-weight:500;">Infizierte Dateien automatisch in Quarantäne verschieben</span>
+            <span style="font-weight:500;">Automatically move malicious files to quarantine</span>
           </label>
         </div>
 
         <div style="margin-bottom:24px;">
           <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
             <input type="checkbox" name="quarantine_suspicious" ${state.config.quarantine_suspicious ? 'checked' : ''}>
-            <span style="font-weight:500;">Verdächtige Dateien ebenfalls in Quarantäne verschieben</span>
+            <span style="font-weight:500;">Also move suspicious files to quarantine</span>
           </label>
         </div>
 
         <button type="submit" class="btn btn-primary">
-          <i data-lucide="save"></i> Einstellungen Speichern
+          <i data-lucide="save"></i> Save Settings
         </button>
       </form>
+    </div>
+
+    <!-- About & Branding Card with High Resolution Logo -->
+    <div class="card" style="max-width:700px; margin:24px auto 0 auto; text-align:center; padding:32px;">
+      <div style="width:120px; height:120px; margin:0 auto 16px auto; border-radius:16px; overflow:hidden; box-shadow:0 0 30px rgba(99,102,241,0.4); border:1px solid rgba(255,255,255,0.2);">
+        <img src="/static/images/logo.png" alt="mcRATAway Cyber Shield Logo" style="width:100%; height:100%; object-fit:cover;">
+      </div>
+      <h3 style="font-size:1.4rem; font-weight:700; margin-bottom:4px;">mcRATAway</h3>
+      <div style="color:var(--primary); font-size:0.85rem; font-weight:600; letter-spacing:1px; margin-bottom:12px;">CYBERSECURITY MALWARE SCANNER</div>
+      <p style="color:var(--text-muted); font-size:0.9rem; max-width:500px; margin:0 auto 16px auto; line-height:1.5;">
+        High-performance, open-source static malware scanner engineered to inspect Minecraft mods (.jar), resource packs, and configuration scripts against Remote Access Trojans (RATs) and session token stealers.
+      </p>
+      <div style="display:flex; justify-content:center; gap:12px; font-size:0.8rem; color:var(--text-dim);">
+        <span class="badge badge-clean">Version v${state.version || '1.0.0'}</span>
+        <span class="badge badge-secondary">Pure Python Bytecode Engine</span>
+        <span class="badge badge-secondary">MIT License</span>
+      </div>
     </div>
   `;
 }
 
 // Render Directory Picker Modal
 function renderPickerModal() {
+  const isQuarantineMode = state.pickerMode === 'quarantine_dir';
+
   return `
     <div class="modal-overlay" onclick="closePickerModal()">
       <div class="modal-card" onclick="event.stopPropagation()">
         <div class="modal-header">
           <div class="modal-title">
-            <i data-lucide="folder-search" style="color:var(--primary)"></i> Verzeichnis oder Datei wählen
+            <i data-lucide="${isQuarantineMode ? 'box' : 'folder-search'}" style="color:var(--primary)"></i> ${isQuarantineMode ? 'Select Quarantine Directory' : 'Select Target Directory'}
           </div>
           <button class="btn btn-sm btn-secondary" onclick="closePickerModal()"><i data-lucide="x"></i></button>
         </div>
 
         <div class="modal-body">
-          <div class="path-bar">
-            <input type="text" id="custom-path-input" class="input-field" value="${state.pickerPath}">
+          <div class="path-bar" style="display:flex; gap:8px;">
+            <input type="text" id="custom-path-input" class="input-field" style="flex:1;" value="${state.pickerPath}">
             <button class="btn btn-secondary" onclick="fetchBrowsePath(document.getElementById('custom-path-input').value)">
-              <i data-lucide="corner-down-left"></i> Öffnen
+              <i data-lucide="corner-down-left"></i> Open
             </button>
           </div>
 
-          <div class="browser-list">
+          <div class="browser-list" style="margin-top:12px;">
             ${state.pickerItems.map(item => `
-              <div class="browser-item" onclick="fetchBrowsePath('${item.path.replace(/\\/g, '/')}')">
-                <i data-lucide="${item.is_dir ? 'folder' : 'file-archive'}" style="color:${item.is_dir ? 'var(--primary)' : 'var(--warning)'}"></i>
-                <span style="flex:1; font-family:var(--font-mono); font-size:0.85rem;">${item.name}</span>
-                ${item.is_archive ? '<span class="badge badge-suspicious">Mod Archive</span>' : ''}
+              <div class="browser-item" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                <div style="display:flex; align-items:center; gap:10px; flex:1; cursor:pointer; overflow:hidden;" onclick="fetchBrowsePath('${item.path.replace(/\\/g, '/')}')">
+                  <i data-lucide="${item.is_dir ? 'folder' : 'file-archive'}" style="color:${item.is_dir ? 'var(--primary)' : 'var(--warning)'}"></i>
+                  <span style="font-family:var(--font-mono); font-size:0.85rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${item.name}</span>
+                  ${item.is_archive ? '<span class="badge badge-suspicious">Mod Archive</span>' : ''}
+                </div>
               </div>
             `).join('')}
           </div>
         </div>
 
-        <div class="modal-footer">
-          <button class="btn btn-secondary" onclick="closePickerModal()">Abbrechen</button>
-          <button class="btn btn-primary" onclick="startSelectedScan()">
-            <i data-lucide="play"></i> Ausgewähltes Verzeichnis Scannen
+        <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center; margin-top:16px;">
+          <button class="btn btn-secondary" onclick="closePickerModal()">Cancel</button>
+          ${isQuarantineMode ? `
+            <button class="btn btn-primary" onclick="setQuarantineDirAndClose(state.pickerPath)">
+              <i data-lucide="check"></i> Set as Quarantine Directory
+            </button>
+          ` : `
+            <button class="btn btn-primary" onclick="addCustomRootAndClose(state.pickerPath)">
+              <i data-lucide="plus"></i> Add to User-Added Folders
+            </button>
+          `}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// Render Custom Confirm Modal
+function renderConfirmModal() {
+  const { title, message, confirmText, icon } = state.confirmModal || {};
+  return `
+    <div class="modal-overlay" onclick="closeConfirmModal()">
+      <div class="modal-card" style="max-width:460px;" onclick="event.stopPropagation()">
+        <div class="modal-header">
+          <div class="modal-title" style="color:var(--danger); display:flex; align-items:center; gap:10px;">
+            <i data-lucide="${icon || 'alert-triangle'}" style="color:var(--danger)"></i> ${title || 'Confirm Action'}
+          </div>
+          <button class="btn btn-sm btn-secondary" onclick="closeConfirmModal()"><i data-lucide="x"></i></button>
+        </div>
+
+        <div class="modal-body" style="padding: 24px; color:var(--text-main); font-size:0.95rem; line-height:1.6;">
+          ${message || 'Are you sure you want to proceed?'}
+        </div>
+
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:12px;">
+          <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancel</button>
+          <button class="btn btn-primary" style="background:#ef4444; border-color:#ef4444;" onclick="handleConfirmAction()">
+            <i data-lucide="${icon || 'check'}"></i> ${confirmText || 'Confirm'}
           </button>
         </div>
       </div>
@@ -622,22 +1159,38 @@ function renderPickerModal() {
   `;
 }
 
-function startSelectedScan() {
-  const path = state.pickerPath;
+function addCustomRootAndClose(path) {
+  addCustomRoot(path);
   closePickerModal();
-  startScan([path]);
 }
 
 function attachEvents() {
   // Global helper functions attached to window for inline handlers
+  window.state = state;
   window.setTab = setTab;
   window.openPickerModal = openPickerModal;
+  window.openQuarantinePicker = openQuarantinePicker;
+  window.openCustomRootPicker = openCustomRootPicker;
   window.closePickerModal = closePickerModal;
+  window.closeConfirmModal = closeConfirmModal;
+  window.handleConfirmAction = handleConfirmAction;
   window.fetchBrowsePath = fetchBrowsePath;
   window.startScan = startScan;
-  window.startSelectedScan = startSelectedScan;
   window.triggerRuleUpdate = triggerRuleUpdate;
   window.toggleRule = toggleRule;
   window.saveConfig = saveConfig;
   window.restoreFile = restoreFile;
+  window.deleteQuarantinedFile = deleteQuarantinedFile;
+  window.purgeQuarantine = purgeQuarantine;
+  window.toggleDiscoveredRoot = toggleDiscoveredRoot;
+  window.toggleCustomRoot = toggleCustomRoot;
+  window.addCustomRoot = addCustomRoot;
+  window.removeCustomRoot = removeCustomRoot;
+  window.addCustomRootAndClose = addCustomRootAndClose;
+  window.setQuarantineDirAndClose = setQuarantineDirAndClose;
+  window.setFindingsFilter = setFindingsFilter;
+  window.setFindingsSearch = setFindingsSearch;
+  window.toggleExpandFinding = toggleExpandFinding;
+  window.quarantineFileNow = quarantineFileNow;
+  window.exportReport = exportReport;
 }

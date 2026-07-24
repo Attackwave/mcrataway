@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from mcrataway.config import UserConfig, ensure_config_dir
+from mcrataway.constants import SCANNER_VERSION
 from mcrataway.core.quarantine import QuarantineManager
 from mcrataway.server.auth import verify_token
 from mcrataway.server.jobs import JobRegistry
@@ -44,7 +45,8 @@ def create_app() -> FastAPI:
     ensure_config_dir()
     config = UserConfig.load()
     job_registry = JobRegistry()
-    quarantine_manager = QuarantineManager()
+    q_target = Path(config.quarantine_dir) if config.quarantine_dir else None
+    quarantine_manager = QuarantineManager(quarantine_dir=q_target)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -53,7 +55,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="mcrataway",
-        version="0.1.0",
+        version=SCANNER_VERSION,
         lifespan=lifespan,
     )
 

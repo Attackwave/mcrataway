@@ -224,7 +224,12 @@ class RulePackLoader:
             )
 
         if rules:
-            self.packs.append(RulePack(pack_id, rules))
+            new_pack = RulePack(pack_id, rules)
+            for idx, existing in enumerate(self.packs):
+                if existing.pack_id == pack_id:
+                    self.packs[idx] = new_pack
+                    return
+            self.packs.append(new_pack)
 
     def all_rules(self) -> list[RulePack]:
         """Return all loaded rule packs."""

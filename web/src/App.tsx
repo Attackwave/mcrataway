@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import ScanPage from './pages/ScanPage'
 import FindingsPage from './pages/FindingsPage'
 import RulesPage from './pages/RulesPage'
@@ -17,6 +17,16 @@ const navItems: { id: Page; label: string; icon: string }[] = [
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>('scan')
+  const [version, setVersion] = useState<string>('1.0.0')
+
+  useEffect(() => {
+    fetch('/system/health')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && data.version) setVersion(data.version)
+      })
+      .catch(() => {})
+  }, [])
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -51,7 +61,7 @@ export default function App() {
       </main>
 
       <footer className="border-t border-[var(--border-color)] py-3 text-center text-sm text-[var(--text-secondary)]">
-        mcrataway v0.1.0 — Minecraft mod malware scanner
+        mcrataway v{version} — Minecraft mod malware scanner
       </footer>
     </div>
   )

@@ -49,6 +49,17 @@ async def list_quarantined(request: Request) -> list[dict[str, Any]]:
     ]
 
 
+@router.delete("")
+@router.delete("/")
+@router.delete("/purge")
+@router.post("/purge")
+async def purge_quarantine(request: Request) -> dict[str, Any]:
+    """Permanently delete all files from quarantine."""
+    qm = request.app.state.quarantine_manager
+    count = qm.purge_all()
+    return {"success": True, "purged_count": count}
+
+
 @router.post("/{sha256}")
 async def quarantine_file(
     sha256: str,
@@ -112,11 +123,20 @@ async def quarantine_file(
     return {"success": qresult is not None, "manifest": manifest}
 
 
-@router.delete("/{sha256}")
+@router.post("/{sha256}/restore")
+@router.delete("/{sha256}/restore")
 async def restore_file(sha256: str, request: Request) -> dict[str, Any]:
-    """Restore a quarantined file."""
+    """Restore a quarantined file to its original location."""
     if not _SHA256_RE.match(sha256):
         return {"success": False, "error": "Invalid SHA-256"}
     qm = request.app.state.quarantine_manager
     success = qm.restore(sha256)
+    return {"success": success}
+
+
+@router.delete("/{sha256}")
+async def delete_quarantined_file(sha256: str, request: Request) -> dict[str, Any]:
+    """Permanently delete a quarantined file from disk."""
+    qm = request.app.state.quarantine_manager
+    success = qm.delete_permanently(sha256)
     return {"success": success}

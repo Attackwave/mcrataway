@@ -34,11 +34,14 @@ class QuarantineManager:
 
     def __init__(
         self,
-        quarantine_dir: Path | None = None,
+        quarantine_dir: Path | str | None = None,
         do_quarantine_malicious: bool = True,
         do_quarantine_suspicious: bool = False,
     ) -> None:
-        self.quarantine_dir = quarantine_dir or QUARANTINE_DIR
+        if quarantine_dir:
+            self.quarantine_dir = Path(quarantine_dir).expanduser().resolve()
+        else:
+            self.quarantine_dir = QUARANTINE_DIR.expanduser().resolve()
         self.do_quarantine_malicious = do_quarantine_malicious
         self.do_quarantine_suspicious = do_quarantine_suspicious
 
@@ -167,10 +170,9 @@ class QuarantineManager:
             if placeholder.exists():
                 placeholder.unlink()
 
-            # Update manifest
-            manifest_data["restored"] = True
-            manifest_data["restore_timestamp"] = datetime.now(UTC).isoformat()
-            manifest_path.write_text(json.dumps(manifest_data, indent=2))
+            # Clean up quarantine directory for this restored item
+            with contextlib.suppress(Exception):
+                shutil.rmtree(quarantine_path)
 
             return True
 
@@ -178,7 +180,7 @@ class QuarantineManager:
             return False
 
     def list_quarantined(self) -> list[QuarantineManifest]:
-        """List all quarantined items."""
+        """List all actively quarantined items present on disk."""
         results: list[QuarantineManifest] = []
         if not self.quarantine_dir.exists():
             return results
@@ -189,7 +191,11 @@ class QuarantineManager:
                 if manifest_path.exists():
                     try:
                         data = json.loads(manifest_path.read_text())
-                        # Only pass known fields; ignore extras like restore_timestamp
+                        if data.get("restored", False):
+                            continue
+                        quarantined_name = Path(data.get("quarantined_path", "")).name
+                        if quarantined_name and not (item / quarantined_name).exists():
+                            continue
                         results.append(QuarantineManifest(
                             original_path=data["original_path"],
                             sha256=data["sha256"],
@@ -198,9 +204,74 @@ class QuarantineManager:
                             confidence=data["confidence"],
                             findings=data["findings"],
                             timestamp=data["timestamp"],
-                            restored=data.get("restored", False),
+                            restored=False,
                         ))
                     except Exception:
                         continue
 
         return results
+
+    def delete_permanently(self, item_id: str) -> bool:
+        """Permanently delete a quarantined item from disk."""
+        item_id_clean = item_id.strip()
+        if not item_id_clean or not self.quarantine_dir.exists():
+            return False
+
+        quarantine_path = self.quarantine_dir / item_id_clean
+        if not quarantine_path.exists():
+            found = [p for p in self.quarantine_dir.iterdir() if p.name.lower() == item_id_clean.lower()]
+            if found:
+                quarantine_path = found[0]
+            else:
+                return False
+
+        # Attempt to remove placeholder if manifest exists
+        manifest_path = quarantine_path / "manifest.json" if quarantine_path.is_dir() else None
+        if manifest_path and manifest_path.exists():
+            try:
+                manifest_data = json.loads(manifest_path.read_text())
+                original_path = Path(manifest_data.get("original_path", ""))
+                if str(original_path):
+                    placeholder = original_path.with_suffix(original_path.suffix + ".quarantined")
+                    if placeholder.exists():
+                        placeholder.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        try:
+            if quarantine_path.is_dir():
+                shutil.rmtree(quarantine_path)
+            elif quarantine_path.is_file():
+                quarantine_path.unlink()
+            return True
+        except Exception:
+            return False
+
+    def purge_all(self) -> int:
+        """Permanently delete all items in quarantine."""
+        target_dir = self.quarantine_dir.expanduser().resolve()
+        deleted_count = 0
+        if not target_dir.exists():
+            return 0
+
+        for item in list(target_dir.iterdir()):
+            try:
+                if item.is_dir():
+                    manifest_path = item / "manifest.json"
+                    if manifest_path.exists():
+                        with contextlib.suppress(Exception):
+                            manifest_data = json.loads(manifest_path.read_text())
+                            original = Path(manifest_data.get("original_path", ""))
+                            if str(original):
+                                placeholder = original.with_suffix(original.suffix + ".quarantined")
+                                if placeholder.exists():
+                                    placeholder.unlink(missing_ok=True)
+                    shutil.rmtree(item)
+                    deleted_count += 1
+                elif item.is_file():
+                    item.unlink()
+                    deleted_count += 1
+            except Exception:
+                pass
+
+        return deleted_count

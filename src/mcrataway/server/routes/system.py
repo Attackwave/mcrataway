@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
 from mcrataway.config import UserConfig
+from mcrataway.constants import SCANNER_VERSION
 from mcrataway.discovery.os_paths import discover_roots
 from mcrataway.rules.updater import RuleUpdater
 
@@ -15,9 +16,11 @@ router = APIRouter(prefix="/system", tags=["system"])
 
 
 class ConfigUpdateModel(BaseModel):
+    custom_roots: list[str] | None = None
     max_workers: int | None = None
     quarantine_suspicious: bool | None = None
     quarantine_malicious: bool | None = None
+    quarantine_dir: str | None = None
     scan_archives: bool | None = None
     scan_scripts: bool | None = None
     scan_configs: bool | None = None
@@ -30,7 +33,7 @@ class ConfigUpdateModel(BaseModel):
 @router.get("/health")
 async def health() -> dict[str, str]:
     """Health check."""
-    return {"status": "ok"}
+    return {"status": "ok", "version": SCANNER_VERSION}
 
 
 @router.get("/roots")
@@ -94,6 +97,8 @@ async def update_config(model: ConfigUpdateModel, request: Request) -> dict[str,
 
     config.save()
     request.app.state.config = config
+    if hasattr(request.app.state, "quarantine_manager") and config.quarantine_dir:
+        request.app.state.quarantine_manager.quarantine_dir = Path(config.quarantine_dir)
     return {"success": True, "config": config.__dict__}
 
 

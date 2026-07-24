@@ -129,3 +129,22 @@ def test_rule_pack_all_rules():
     assert all(isinstance(r, RulePack) for r in rules)
     for pack in rules:
         assert len(pack.rules) > 0
+
+
+def test_rule_pack_deduplication(tmp_path):
+    yaml_content_1 = "pack_id: my_pack\nrules:\n  - id: r1\n    severity: high\n    description: test1\n    strings:\n      - kind: literal\n        value: foo\n"
+    yaml_content_2 = "pack_id: my_pack\nrules:\n  - id: r2\n    severity: low\n    description: test2\n    strings:\n      - kind: literal\n        value: bar\n"
+
+    file1 = tmp_path / "pack1.yaml"
+    file2 = tmp_path / "pack2.yaml"
+    file1.write_text(yaml_content_1)
+    file2.write_text(yaml_content_2)
+
+    loader = RulePackLoader()
+    loader.load_pack(file1)
+    assert len(loader.packs) == 1
+    assert loader.packs[0].rules[0].rule_id == "r1"
+
+    loader.load_pack(file2)
+    assert len(loader.packs) == 1
+    assert loader.packs[0].rules[0].rule_id == "r2"
