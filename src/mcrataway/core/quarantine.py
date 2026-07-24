@@ -34,11 +34,14 @@ class QuarantineManager:
 
     def __init__(
         self,
-        quarantine_dir: Path | None = None,
+        quarantine_dir: Path | str | None = None,
         do_quarantine_malicious: bool = True,
         do_quarantine_suspicious: bool = False,
     ) -> None:
-        self.quarantine_dir = quarantine_dir or QUARANTINE_DIR
+        if quarantine_dir:
+            self.quarantine_dir = Path(quarantine_dir).expanduser().resolve()
+        else:
+            self.quarantine_dir = QUARANTINE_DIR.expanduser().resolve()
         self.do_quarantine_malicious = do_quarantine_malicious
         self.do_quarantine_suspicious = do_quarantine_suspicious
 
@@ -246,19 +249,29 @@ class QuarantineManager:
 
     def purge_all(self) -> int:
         """Permanently delete all items in quarantine."""
+        target_dir = self.quarantine_dir.expanduser().resolve()
         deleted_count = 0
-        if not self.quarantine_dir.exists():
+        if not target_dir.exists():
             return 0
-        for item in list(self.quarantine_dir.iterdir()):
-            if self.delete_permanently(item.name):
-                deleted_count += 1
-            else:
-                try:
-                    if item.is_dir():
-                        shutil.rmtree(item)
-                    else:
-                        item.unlink()
+
+        for item in list(target_dir.iterdir()):
+            try:
+                if item.is_dir():
+                    manifest_path = item / "manifest.json"
+                    if manifest_path.exists():
+                        with contextlib.suppress(Exception):
+                            manifest_data = json.loads(manifest_path.read_text())
+                            original = Path(manifest_data.get("original_path", ""))
+                            if str(original):
+                                placeholder = original.with_suffix(original.suffix + ".quarantined")
+                                if placeholder.exists():
+                                    placeholder.unlink(missing_ok=True)
+                    shutil.rmtree(item)
                     deleted_count += 1
-                except Exception:
-                    pass
+                elif item.is_file():
+                    item.unlink()
+                    deleted_count += 1
+            except Exception:
+                pass
+
         return deleted_count
