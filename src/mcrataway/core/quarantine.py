@@ -205,17 +205,23 @@ class QuarantineManager:
 
         return results
 
-    def delete_permanently(self, sha256: str) -> bool:
+    def delete_permanently(self, item_id: str) -> bool:
         """Permanently delete a quarantined item from disk."""
-        if not _SHA256_RE.match(sha256):
-            return False
-        quarantine_path = self.quarantine_dir / sha256
-        if not quarantine_path.exists():
+        item_id_clean = item_id.strip()
+        if not item_id_clean or not self.quarantine_dir.exists():
             return False
 
+        quarantine_path = self.quarantine_dir / item_id_clean
+        if not quarantine_path.exists():
+            found = [p for p in self.quarantine_dir.iterdir() if p.name.lower() == item_id_clean.lower()]
+            if found:
+                quarantine_path = found[0]
+            else:
+                return False
+
         # Attempt to remove placeholder if manifest exists
-        manifest_path = quarantine_path / "manifest.json"
-        if manifest_path.exists():
+        manifest_path = quarantine_path / "manifest.json" if quarantine_path.is_dir() else None
+        if manifest_path and manifest_path.exists():
             try:
                 manifest_data = json.loads(manifest_path.read_text())
                 original_path = Path(manifest_data.get("original_path", ""))
@@ -227,7 +233,10 @@ class QuarantineManager:
                 pass
 
         try:
-            shutil.rmtree(quarantine_path)
+            if quarantine_path.is_dir():
+                shutil.rmtree(quarantine_path)
+            elif quarantine_path.is_file():
+                quarantine_path.unlink()
             return True
         except Exception:
             return False
@@ -238,7 +247,15 @@ class QuarantineManager:
         if not self.quarantine_dir.exists():
             return 0
         for item in list(self.quarantine_dir.iterdir()):
-            if item.is_dir() and _SHA256_RE.match(item.name):
-                if self.delete_permanently(item.name):
+            if self.delete_permanently(item.name):
+                deleted_count += 1
+            else:
+                try:
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
                     deleted_count += 1
+                except Exception:
+                    pass
         return deleted_count

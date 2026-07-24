@@ -137,8 +137,6 @@ async def restore_file(sha256: str, request: Request) -> dict[str, Any]:
 @router.delete("/{sha256}")
 async def delete_quarantined_file(sha256: str, request: Request) -> dict[str, Any]:
     """Permanently delete a quarantined file from disk."""
-    if not _SHA256_RE.match(sha256):
-        return {"success": False, "error": "Invalid SHA-256"}
     qm = request.app.state.quarantine_manager
     success = qm.delete_permanently(sha256)
     return {"success": success}
