@@ -69,21 +69,18 @@ def _run_scan(
     # Send an initial 0% progress event so the UI does not appear
     # frozen for the first 10 files (the modulo gate below would
     # otherwise suppress output until i == 9).
-    if on_event and total > 0:
+    if on_event:
         on_event({
             "type": "progress",
             "scanned": 0,
             "total": total,
-            "percent": 0.0,
+            "percent": 100.0 if total == 0 else 0.0,
         })
 
     for i, file_path in enumerate(all_files):
         entry: dict[str, Any]
         try:
             result = engine._scan_single(file_path, "")
-            # Apply quarantine per the engine's policy (Bug fix: previously
-            # the web-worker path bypassed quarantine entirely because it
-            # called _scan_single directly instead of scan_files).
             engine.maybe_quarantine(file_path, result)
             entry = {
                 "file_path": result.file_path,
@@ -95,16 +92,15 @@ def _run_scan(
             }
             results.append(entry)
 
-            # Real-time progress + finding events
-            if (i + 1) % 10 == 0 or i == total - 1:
+            # Real-time progress on every single file for smooth progress bar updates
+            if on_event:
                 progress = (i + 1) / total if total else 1.0
-                if on_event:
-                    on_event({
-                        "type": "progress",
-                        "scanned": i + 1,
-                        "total": total,
-                        "percent": round(progress * 100, 1),
-                    })
+                on_event({
+                    "type": "progress",
+                    "scanned": i + 1,
+                    "total": total,
+                    "percent": round(progress * 100, 1),
+                })
 
             if on_event and entry["verdict"] in ("MALICIOUS", "SUSPICIOUS"):
                 on_event({"type": "verdict", "verdict": entry})
