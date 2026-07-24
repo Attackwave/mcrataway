@@ -21,6 +21,7 @@ const state = {
   selectedPath: '',
   pickerItems: [],
   showPickerModal: false,
+  pickerMode: 'custom_root', // 'custom_root' | 'quarantine_dir'
   confirmModal: null,
 };
 
@@ -184,8 +185,9 @@ async function removeCustomRoot(root) {
 }
 
 // Directory Browser Logic
-async function openPickerModal(initialPath = '') {
+async function openPickerModal(initialPath = '', mode = 'custom_root') {
   state.showPickerModal = true;
+  state.pickerMode = mode;
   state.selectedPath = initialPath;
   await fetchBrowsePath(initialPath);
 }
@@ -208,6 +210,29 @@ async function fetchBrowsePath(path = '') {
     renderApp();
   } catch (err) {
     showToast('Could not load directory', 'error');
+  }
+}
+
+async function setQuarantineDirAndClose(path) {
+  if (!path) return;
+  const cleanPath = path.replace(/\\/g, '/');
+  state.config.quarantine_dir = cleanPath;
+  closePickerModal();
+
+  try {
+    const res = await fetch('/system/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quarantine_dir: cleanPath }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      state.config = data.config;
+      showToast('Quarantine directory updated successfully', 'success');
+      renderApp();
+    }
+  } catch (err) {
+    showToast('Failed to update quarantine directory', 'error');
   }
 }
 
@@ -469,7 +494,7 @@ function renderDashboard() {
           <div class="hero-title"><i data-lucide="folder-plus" style="color:var(--success)"></i> Add Custom Directory</div>
           <div class="hero-desc">Browse and add custom mod folders or .jar files to your target scan list.</div>
         </div>
-        <button class="btn btn-secondary" onclick="openPickerModal()">
+        <button class="btn btn-secondary" onclick="openPickerModal('', 'custom_root')">
           <i data-lucide="folder-open"></i> Browse Directory...
         </button>
       </div>
@@ -525,7 +550,7 @@ function renderDashboard() {
         <h3 style="font-weight:600; display:flex; align-items:center; gap:8px;">
           <i data-lucide="folder-plus"></i> User-Added Folders
         </h3>
-        <button class="btn btn-sm btn-secondary" onclick="openPickerModal()">
+        <button class="btn btn-sm btn-secondary" onclick="openPickerModal('', 'custom_root')">
           <i data-lucide="plus"></i> Add Custom Directory...
         </button>
       </div>
@@ -782,8 +807,15 @@ function renderSettings() {
 
         <div style="margin-bottom:20px;">
           <label style="display:block; font-weight:500; margin-bottom:8px;">Quarantine Directory Path (quarantine_dir)</label>
-          <input type="text" name="quarantine_dir" class="input-field" value="${state.config.quarantine_dir || ''}" style="width:100%;">
-          <div style="color:var(--text-dim); font-size:0.8rem; margin-top:4px;">Custom folder path where isolated files are safely quarantined.</div>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="quarantine-dir-input" name="quarantine_dir" class="input-field" value="${state.config.quarantine_dir || ''}" style="flex:1;" placeholder="Default: ~/.mcrataway/quarantine" onclick="openPickerModal(state.config.quarantine_dir || '', 'quarantine_dir')">
+            <button type="button" class="btn btn-secondary" onclick="openPickerModal(state.config.quarantine_dir || '', 'quarantine_dir')">
+              <i data-lucide="folder-open"></i> Browse...
+            </button>
+          </div>
+          <div style="color:var(--text-dim); font-size:0.8rem; margin-top:6px;">
+            Default fallback path: <code style="font-family:var(--font-mono); color:var(--primary); background:rgba(99,102,241,0.15); padding:2px 8px; border-radius:4px; border:1px solid rgba(99,102,241,0.3);">~/.mcrataway/quarantine</code>
+          </div>
         </div>
 
         <div style="margin-bottom:20px;">
@@ -810,12 +842,14 @@ function renderSettings() {
 
 // Render Directory Picker Modal
 function renderPickerModal() {
+  const isQuarantineMode = state.pickerMode === 'quarantine_dir';
+
   return `
     <div class="modal-overlay" onclick="closePickerModal()">
       <div class="modal-card" onclick="event.stopPropagation()">
         <div class="modal-header">
           <div class="modal-title">
-            <i data-lucide="folder-search" style="color:var(--primary)"></i> Select Target Directory
+            <i data-lucide="${isQuarantineMode ? 'box' : 'folder-search'}" style="color:var(--primary)"></i> ${isQuarantineMode ? 'Select Quarantine Directory' : 'Select Target Directory'}
           </div>
           <button class="btn btn-sm btn-secondary" onclick="closePickerModal()"><i data-lucide="x"></i></button>
         </div>
@@ -843,9 +877,15 @@ function renderPickerModal() {
 
         <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center; margin-top:16px;">
           <button class="btn btn-secondary" onclick="closePickerModal()">Cancel</button>
-          <button class="btn btn-primary" onclick="addCustomRootAndClose(state.pickerPath)">
-            <i data-lucide="plus"></i> Add to User-Added Folders
-          </button>
+          ${isQuarantineMode ? `
+            <button class="btn btn-primary" onclick="setQuarantineDirAndClose(state.pickerPath)">
+              <i data-lucide="check"></i> Set as Quarantine Directory
+            </button>
+          ` : `
+            <button class="btn btn-primary" onclick="addCustomRootAndClose(state.pickerPath)">
+              <i data-lucide="plus"></i> Add to User-Added Folders
+            </button>
+          `}
         </div>
       </div>
     </div>
@@ -905,4 +945,5 @@ function attachEvents() {
   window.addCustomRoot = addCustomRoot;
   window.removeCustomRoot = removeCustomRoot;
   window.addCustomRootAndClose = addCustomRootAndClose;
+  window.setQuarantineDirAndClose = setQuarantineDirAndClose;
 }
