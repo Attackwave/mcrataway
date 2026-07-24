@@ -128,7 +128,7 @@ function exportReport() {
 
   const reportData = {
     scanner: 'mcRATAway',
-    version: state.version || '1.0.0',
+    version: state.version || '1.1.0',
     timestamp: new Date().toISOString(),
     total_findings: state.findings.length,
     malicious_count: state.findings.filter(f => f.verdict === 'MALICIOUS').length,
@@ -538,7 +538,7 @@ function renderHeader() {
         <div style="display:flex; flex-direction:column; justify-content:center;">
           <div style="display:flex; align-items:center; gap:8px;">
             <span style="font-size:1.35rem; font-weight:700; letter-spacing:-0.5px;">mcrataway</span>
-            <span class="brand-version" style="font-size:0.7rem; padding:1px 6px;">v${state.version || '1.0.0'}</span>
+            <span class="brand-version" style="font-size:0.7rem; padding:1px 6px;">v${state.version || '1.1.0'}</span>
           </div>
           <div style="font-size:0.7rem; color:var(--text-muted); font-weight:600; letter-spacing:0.8px; margin-top:1px;">MALWARE SCANNER</div>
         </div>
@@ -1071,7 +1071,7 @@ function renderSettings() {
         High-performance, open-source static malware scanner engineered to inspect Minecraft mods (.jar), resource packs, and configuration scripts against Remote Access Trojans (RATs) and session token stealers.
       </p>
       <div style="display:flex; justify-content:center; gap:12px; font-size:0.8rem; color:var(--text-dim);">
-        <span class="badge badge-clean">Version v${state.version || '1.0.0'}</span>
+        <span class="badge badge-clean">Version v${state.version || '1.1.0'}</span>
         <span class="badge badge-secondary">Pure Python Bytecode Engine</span>
         <span class="badge badge-secondary">MIT License</span>
       </div>
