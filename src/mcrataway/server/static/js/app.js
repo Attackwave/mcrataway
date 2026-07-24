@@ -707,7 +707,24 @@ function renderScanner() {
   const malPercent = totalThreats > 0 ? (maliciousCount / totalThreats) * 100 : 0;
   const suspPercent = totalThreats > 0 ? (suspiciousCount / totalThreats) * 100 : 0;
 
+  const isRunning = state.currentJob && state.currentJob.status === 'RUNNING';
+
   return `
+    ${!isRunning && state.findings.length === 0 ? `
+      <div class="card" style="margin-bottom:24px; text-align:center; padding:36px 24px; background:linear-gradient(135deg, rgba(15,23,42,0.9), rgba(30,41,59,0.6)); border:1px solid rgba(99,102,241,0.25);">
+        <div style="width:96px; height:96px; margin:0 auto 16px auto; border-radius:16px; overflow:hidden; box-shadow:0 0 30px rgba(99,102,241,0.4); border:1px solid rgba(255,255,255,0.2);">
+          <img src="/static/images/logo.png" alt="mcRATAway Cyber Shield Logo" style="width:100%; height:100%; object-fit:cover;">
+        </div>
+        <h2 style="font-size:1.5rem; font-weight:700; margin-bottom:6px;">Ready to Protect Your Minecraft Setup</h2>
+        <p style="color:var(--text-muted); font-size:0.95rem; max-width:540px; margin:0 auto 20px auto; line-height:1.5;">
+          Select your target directories on the Dashboard and click <strong>Start Scan</strong> to perform deep static bytecode analysis across all installed mods and scripts.
+        </p>
+        <button class="btn btn-primary" style="padding:10px 24px; font-size:0.95rem;" onclick="startScan()">
+          <i data-lucide="play"></i> Start Malware Scan
+        </button>
+      </div>
+    ` : ''}
+
     <div class="card" style="margin-bottom: 24px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <div>
@@ -1041,6 +1058,23 @@ function renderSettings() {
           <i data-lucide="save"></i> Save Settings
         </button>
       </form>
+    </div>
+
+    <!-- About & Branding Card with High Resolution Logo -->
+    <div class="card" style="max-width:700px; margin:24px auto 0 auto; text-align:center; padding:32px;">
+      <div style="width:120px; height:120px; margin:0 auto 16px auto; border-radius:16px; overflow:hidden; box-shadow:0 0 30px rgba(99,102,241,0.4); border:1px solid rgba(255,255,255,0.2);">
+        <img src="/static/images/logo.png" alt="mcRATAway Cyber Shield Logo" style="width:100%; height:100%; object-fit:cover;">
+      </div>
+      <h3 style="font-size:1.4rem; font-weight:700; margin-bottom:4px;">mcRATAway</h3>
+      <div style="color:var(--primary); font-size:0.85rem; font-weight:600; letter-spacing:1px; margin-bottom:12px;">CYBERSECURITY MALWARE SCANNER</div>
+      <p style="color:var(--text-muted); font-size:0.9rem; max-width:500px; margin:0 auto 16px auto; line-height:1.5;">
+        High-performance, open-source static malware scanner engineered to inspect Minecraft mods (.jar), resource packs, and configuration scripts against Remote Access Trojans (RATs) and session token stealers.
+      </p>
+      <div style="display:flex; justify-content:center; gap:12px; font-size:0.8rem; color:var(--text-dim);">
+        <span class="badge badge-clean">Version v${state.version || '1.0.0'}</span>
+        <span class="badge badge-secondary">Pure Python Bytecode Engine</span>
+        <span class="badge badge-secondary">MIT License</span>
+      </div>
     </div>
   `;
 }
