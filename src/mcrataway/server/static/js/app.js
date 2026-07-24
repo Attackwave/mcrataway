@@ -530,13 +530,18 @@ function renderHeader() {
   const isRunning = state.currentJob && state.currentJob.status === 'RUNNING';
 
   return `
-    <header>
-      <div class="brand" style="display:flex; align-items:center; gap:12px;">
-        <div class="brand-icon ${isRunning ? 'radar-pulse' : ''}" style="width:36px; height:36px; padding:0; overflow:hidden; border-radius:8px; background:transparent; display:flex; align-items:center; justify-content:center;">
+    <header style="padding:14px 32px;">
+      <div class="brand" style="display:flex; align-items:center; gap:14px;">
+        <div class="brand-icon ${isRunning ? 'radar-pulse' : ''}" style="width:52px; height:52px; padding:0; overflow:hidden; border-radius:10px; background:transparent; display:flex; align-items:center; justify-content:center; box-shadow:0 0 20px rgba(99, 102, 241, 0.35); border:1px solid rgba(255,255,255,0.15);">
           <img src="/static/images/logo.png" alt="mcRATAway Logo" style="width:100%; height:100%; object-fit:cover;">
         </div>
-        <span>mcrataway</span>
-        <span class="brand-version">v${state.version || '1.0.0'}</span>
+        <div style="display:flex; flex-direction:column; justify-content:center;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:1.35rem; font-weight:700; letter-spacing:-0.5px;">mcrataway</span>
+            <span class="brand-version" style="font-size:0.7rem; padding:1px 6px;">v${state.version || '1.0.0'}</span>
+          </div>
+          <div style="font-size:0.7rem; color:var(--text-muted); font-weight:600; letter-spacing:0.8px; margin-top:1px;">MALWARE SCANNER</div>
+        </div>
       </div>
 
       <nav>
