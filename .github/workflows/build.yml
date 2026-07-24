@@ -54,21 +54,25 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            echo "BINARY_PATH=dist_win/mcrataway.exe" >> $GITHUB_ENV
+            echo "SRC_PATH=dist_win/mcrataway.exe" >> $GITHUB_ENV
             echo "ARTIFACT_NAME=mcrataway-windows-amd64.exe" >> $GITHUB_ENV
           elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-            echo "BINARY_PATH=dist/mcrataway" >> $GITHUB_ENV
+            echo "SRC_PATH=dist/mcrataway" >> $GITHUB_ENV
             echo "ARTIFACT_NAME=mcrataway-macos-universal" >> $GITHUB_ENV
           else
-            echo "BINARY_PATH=dist/mcrataway" >> $GITHUB_ENV
+            echo "SRC_PATH=dist/mcrataway" >> $GITHUB_ENV
             echo "ARTIFACT_NAME=mcrataway-linux-x86_64" >> $GITHUB_ENV
           fi
+
+      - name: Rename Binary to Unique Artifact Name
+        shell: bash
+        run: cp "${{ env.SRC_PATH }}" "${{ env.ARTIFACT_NAME }}"
 
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: ${{ env.BINARY_PATH }}
+          path: ${{ env.ARTIFACT_NAME }}
           if-no-files-found: error
 
   release:
