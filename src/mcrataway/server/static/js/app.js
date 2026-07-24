@@ -2,6 +2,22 @@
  * mcrataway Web Application Frontend App
  */
 
+// Detector Tooltip Descriptions (English)
+const DETECTOR_DESCRIPTIONS = {
+  D01: 'Process Execution: Detects Runtime.exec and ProcessBuilder calls',
+  D02: 'Network I/O: Detects raw sockets, HTTP requests, and Discord webhook exfiltration',
+  D03: 'Dynamic Class Loading: Flags URLClassLoader and bytecode injection',
+  D04: 'FS / JAR Modification: Detects unauthorized file or host JAR writes',
+  D05: 'System Persistence: Uncovers startup hooks, Registry keys, and systemd/crontab persistence',
+  D06: 'Unsafe Deserialization: Pinpoints vulnerable ObjectInputStream readObject payload execution',
+  D07: 'Native Library Loading: Flags System.load/JNI native dynamic binaries (.dll, .so, .dylib)',
+  D08: 'Credential & Token Theft: Detects targeting of Discord tokens and Mojang/Microsoft session tokens',
+  D09: 'Obfuscation Analysis: Measures code entropy, identifies S-box ciphers, and synthetic class structures',
+  D10: 'Reflection Indirect: Uncovers hidden invocations using MethodHandles and LambdaMetafactory',
+  D11: 'On-Chain C2: Detects blockchain-based command-and-control infrastructure (e.g. eth_call)',
+  D12: 'Resource & Datapack Exploits: Scans .mcfunction, PNG, and JSON assets for buffer overflow and script abuse',
+};
+
 // Global State
 const state = {
   activeTab: 'dashboard',
@@ -101,6 +117,37 @@ function handleConfirmAction() {
   } else {
     closeConfirmModal();
   }
+}
+
+// Export Scan Report (JSON download)
+function exportReport() {
+  if (!state.findings || state.findings.length === 0) {
+    showToast('No scan findings available to export', 'info');
+    return;
+  }
+
+  const reportData = {
+    scanner: 'mcRATAway',
+    version: state.version || '1.0.0',
+    timestamp: new Date().toISOString(),
+    total_findings: state.findings.length,
+    malicious_count: state.findings.filter(f => f.verdict === 'MALICIOUS').length,
+    suspicious_count: state.findings.filter(f => f.verdict === 'SUSPICIOUS').length,
+    clean_count: state.findings.filter(f => f.verdict === 'CLEAN').length,
+    results: state.findings,
+  };
+
+  const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `mcrataway_scan_report_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  showToast('Scan report exported successfully!', 'success');
 }
 
 // Target Root Selection & Checkbox Management
@@ -480,10 +527,12 @@ function renderApp() {
 }
 
 function renderHeader() {
+  const isRunning = state.currentJob && state.currentJob.status === 'RUNNING';
+
   return `
     <header>
       <div class="brand">
-        <div class="brand-icon">
+        <div class="brand-icon ${isRunning ? 'radar-pulse' : ''}">
           <i data-lucide="shield-alert" style="color:#fff; width:24px; height:24px;"></i>
         </div>
         <span>mcrataway</span>
@@ -495,7 +544,7 @@ function renderHeader() {
           <i data-lucide="layout-dashboard"></i> Dashboard
         </button>
         <button class="nav-link ${state.activeTab === 'scanner' ? 'active' : ''}" onclick="setTab('scanner')">
-          <i data-lucide="radar"></i> Scanner
+          <i data-lucide="radar"></i> Scanner ${isRunning ? '<span class="status-dot" style="margin-left:6px;"></span>' : ''}
         </button>
         <button class="nav-link ${state.activeTab === 'quarantine' ? 'active' : ''}" onclick="setTab('quarantine')">
           <i data-lucide="box"></i> Quarantine (${state.quarantineItems.length})
@@ -510,7 +559,7 @@ function renderHeader() {
 
       <div class="status-badge">
         <span class="status-dot"></span>
-        <span>Scanner Engine Active</span>
+        <span>${isRunning ? 'Scanning Active...' : 'Scanner Engine Active'}</span>
       </div>
     </header>
   `;
@@ -548,6 +597,13 @@ function renderDashboard() {
           <i data-lucide="download-cloud"></i> Update Signatures
         </button>
       </div>
+    </div>
+
+    <!-- Drag & Drop Instant Quick Scan Zone -->
+    <div class="drop-zone" id="drop-zone" onclick="openCustomRootPicker()" style="margin-bottom: 24px;">
+      <i data-lucide="upload-cloud" style="width:36px; height:36px; color:var(--primary); margin-bottom:8px;"></i>
+      <div style="font-weight:600; font-size:1.05rem;">Quick Directory Target Selector</div>
+      <div style="color:var(--text-muted); font-size:0.85rem; margin-top:4px;">Click to browse and add custom Minecraft mod folders or JAR paths to your scan targets</div>
     </div>
 
     <div class="grid-3">
@@ -641,6 +697,11 @@ function renderScanner() {
     });
   }
 
+  // Calculate Threat Distribution
+  const totalThreats = maliciousCount + suspiciousCount;
+  const malPercent = totalThreats > 0 ? (maliciousCount / totalThreats) * 100 : 0;
+  const suspPercent = totalThreats > 0 ? (suspiciousCount / totalThreats) * 100 : 0;
+
   return `
     <div class="card" style="margin-bottom: 24px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -652,6 +713,11 @@ function renderScanner() {
             ${state.currentJob ? `Job ID: ${state.currentJob.job_id}` : 'Ready for scan.'}
           </div>
         </div>
+        ${state.findings.length > 0 ? `
+          <button class="btn btn-secondary" onclick="exportReport()">
+            <i data-lucide="download"></i> Export Report (JSON)
+          </button>
+        ` : ''}
       </div>
 
       ${state.currentJob ? `
@@ -680,6 +746,19 @@ function renderScanner() {
           <span class="stat-value" style="color:#10b981;">${state.scannedFiles}</span>
         </div>
       </div>
+
+      ${totalThreats > 0 ? `
+        <div style="margin-top:16px;">
+          <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:var(--text-muted); margin-bottom:6px;">
+            <span>Threat Severity Distribution</span>
+            <span>${maliciousCount} Malicious / ${suspiciousCount} Suspicious</span>
+          </div>
+          <div style="height:8px; background:rgba(255,255,255,0.05); border-radius:4px; overflow:hidden; display:flex;">
+            <div style="width:${malPercent}%; background:#ef4444;" title="Malicious: ${maliciousCount}"></div>
+            <div style="width:${suspPercent}%; background:#f59e0b;" title="Suspicious: ${suspiciousCount}"></div>
+          </div>
+        </div>
+      ` : ''}
     </div>
 
     <div class="card">
@@ -734,9 +813,10 @@ function renderScanner() {
 
                 <div style="display:flex; align-items:center; gap:10px;">
                   <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                    ${(f.findings || []).slice(0, 3).map(item => `
-                      <span class="badge badge-warning" style="font-size:0.7rem;">[${item.detector_id}]</span>
-                    `).join('')}
+                    ${(f.findings || []).slice(0, 3).map(item => {
+                      const tooltip = DETECTOR_DESCRIPTIONS[item.detector_id] || item.description || item.detector_id;
+                      return `<span class="badge badge-warning" data-tooltip="${tooltip.replace(/"/g, '&quot;')}" style="font-size:0.7rem;">[${item.detector_id}]</span>`;
+                    }).join('')}
                     ${(f.findings || []).length > 3 ? `<span class="badge badge-secondary" style="font-size:0.7rem;">+${(f.findings || []).length - 3} more</span>` : ''}
                   </div>
 
@@ -757,19 +837,22 @@ function renderScanner() {
 
                   ${(f.findings || []).length === 0 ? '<div style="color:var(--text-muted); font-size:0.85rem;">No specific threat signature triggered for this clean file.</div>' : ''}
                   <div style="display:flex; flex-direction:column; gap:8px;">
-                    ${(f.findings || []).map(item => `
-                      <div style="padding:10px 12px; background:rgba(15, 23, 42, 0.6); border-radius:6px; border:1px solid rgba(255,255,255,0.05);">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                          <strong style="color:var(--warning); font-size:0.85rem;">[${item.detector_id}] ${item.description || ''}</strong>
-                          ${item.severity ? `<span class="badge badge-${item.severity === 'CRITICAL' || item.severity === 'HIGH' ? 'malicious' : 'suspicious'}" style="font-size:0.65rem;">${item.severity}</span>` : ''}
-                        </div>
-                        ${item.matched_value ? `
-                          <div style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted); margin-top:4px; word-break:break-all; background:rgba(0,0,0,0.4); padding:6px 10px; border-radius:4px;">
-                            Matched Payload: <span style="color:#6ee7b7;">${item.matched_value}</span>
+                    ${(f.findings || []).map(item => {
+                      const tooltip = DETECTOR_DESCRIPTIONS[item.detector_id] || item.description || item.detector_id;
+                      return `
+                        <div style="padding:10px 12px; background:rgba(15, 23, 42, 0.6); border-radius:6px; border:1px solid rgba(255,255,255,0.05);">
+                          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                            <strong style="color:var(--warning); font-size:0.85rem;" data-tooltip="${tooltip.replace(/"/g, '&quot;')}">[${item.detector_id}] ${item.description || ''}</strong>
+                            ${item.severity ? `<span class="badge badge-${item.severity === 'CRITICAL' || item.severity === 'HIGH' ? 'malicious' : 'suspicious'}" style="font-size:0.65rem;">${item.severity}</span>` : ''}
                           </div>
-                        ` : ''}
-                      </div>
-                    `).join('')}
+                          ${item.matched_value ? `
+                            <div style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted); margin-top:4px; word-break:break-all; background:rgba(0,0,0,0.4); padding:6px 10px; border-radius:4px;">
+                              Matched Payload: <span style="color:#6ee7b7;">${item.matched_value}</span>
+                            </div>
+                          ` : ''}
+                        </div>
+                      `;
+                    }).join('')}
                   </div>
                 </div>
               ` : ''}
@@ -886,12 +969,13 @@ function renderRules() {
             <div style="display:flex; flex-direction:column; gap:8px;">
               ${pack.rules.map(r => {
                 const isEnabled = !disabledList.includes(r.id);
+                const tooltip = DETECTOR_DESCRIPTIONS[r.id] || r.description;
                 return `
                   <div style="padding:10px 12px; background:rgba(0,0,0,0.3); border-radius:8px; font-size:0.85rem; border:1px solid ${isEnabled ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255,255,255,0.05)'}; opacity:${isEnabled ? '1' : '0.5'}; transition:all 0.2s;">
                     <div style="font-weight:600; color:var(--text-main); display:flex; justify-content:space-between; align-items:center;">
                       <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
                         <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="toggleRule('${r.id}')" style="accent-color:var(--primary); width:16px; height:16px;">
-                        <span>${r.id} <span style="font-size:0.75rem; color:var(--text-muted);">(${r.family})</span></span>
+                        <span data-tooltip="${tooltip.replace(/"/g, '&quot;')}">${r.id} <span style="font-size:0.75rem; color:var(--text-muted);">(${r.family})</span></span>
                       </label>
                       <span class="badge badge-${r.severity === 'critical' || r.severity === 'high' ? 'malicious' : 'suspicious'}" style="font-size:0.65rem;">${r.severity}</span>
                     </div>
@@ -1069,4 +1153,5 @@ function attachEvents() {
   window.setFindingsSearch = setFindingsSearch;
   window.toggleExpandFinding = toggleExpandFinding;
   window.quarantineFileNow = quarantineFileNow;
+  window.exportReport = exportReport;
 }
