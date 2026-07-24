@@ -5,14 +5,27 @@ on:
     branches: [ main, master ]
     tags:
       - 'v*'
+    paths:
+      - 'src/**'
+      - 'scripts/build.py'
+      - 'mcrataway.spec'
+      - 'pyproject.toml'
+      - '.github/workflows/build.yml'
   pull_request:
     branches: [ main, master ]
+    paths:
+      - 'src/**'
+      - 'scripts/build.py'
+      - 'mcrataway.spec'
+      - 'pyproject.toml'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
 
 jobs:
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -57,3 +70,25 @@ jobs:
           name: ${{ env.ARTIFACT_NAME }}
           path: ${{ env.BINARY_PATH }}
           if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download All Binary Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
