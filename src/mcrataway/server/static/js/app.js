@@ -11,6 +11,9 @@ const state = {
   scannedFiles: 0,
   totalFiles: 0,
   findings: [],
+  findingsFilter: 'ALL', // 'ALL' | 'MALICIOUS' | 'SUSPICIOUS' | 'CLEAN'
+  findingsSearch: '',
+  expandedFindings: {},
   quarantineItems: [],
   rules: [],
   discoveredRoots: [],
@@ -247,6 +250,38 @@ async function setQuarantineDirAndClose(path) {
   }
 }
 
+// Findings Filter, Search & Accordion Helpers
+function setFindingsFilter(filter) {
+  state.findingsFilter = filter;
+  renderApp();
+}
+
+function setFindingsSearch(query) {
+  state.findingsSearch = query;
+  renderApp();
+}
+
+function toggleExpandFinding(key) {
+  state.expandedFindings[key] = !state.expandedFindings[key];
+  renderApp();
+}
+
+async function quarantineFileNow(sha256, filePath) {
+  try {
+    const url = `/quarantine/${sha256}?file_path=${encodeURIComponent(filePath)}`;
+    const res = await fetch(url, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('File successfully quarantined', 'success');
+      await loadInitialData();
+    } else {
+      showToast('Quarantine failed: ' + (data.error || 'Unknown error'), 'error');
+    }
+  } catch (err) {
+    showToast('Quarantine failed', 'error');
+  }
+}
+
 // Scanning Engine Execution
 async function startScan(roots = null, autoDiscover = false) {
   const targetRoots = roots || getScanTargets();
@@ -305,7 +340,11 @@ function connectWebSocket(jobId) {
       renderApp();
     } else if (data.type === 'done') {
       showToast('Scan completed!', 'success');
-      state.currentJob.status = 'COMPLETED';
+      state.scanProgress = 100;
+      if (state.currentJob) {
+        state.currentJob.status = 'COMPLETED';
+      }
+      renderApp();
       loadInitialData();
     }
   };
@@ -578,8 +617,29 @@ function renderDashboard() {
 }
 
 function renderScanner() {
+  const totalCount = state.findings.length;
   const maliciousCount = state.findings.filter(f => f.verdict === 'MALICIOUS').length;
   const suspiciousCount = state.findings.filter(f => f.verdict === 'SUSPICIOUS').length;
+  const cleanCount = state.findings.filter(f => f.verdict === 'CLEAN').length;
+
+  // Filter & Search Logic
+  let filtered = state.findings;
+  if (state.findingsFilter !== 'ALL') {
+    filtered = filtered.filter(f => f.verdict === state.findingsFilter);
+  }
+  if (state.findingsSearch && state.findingsSearch.trim()) {
+    const q = state.findingsSearch.toLowerCase().trim();
+    filtered = filtered.filter(f => {
+      const pathMatch = f.file_path && f.file_path.toLowerCase().includes(q);
+      const shaMatch = f.sha256 && f.sha256.toLowerCase().includes(q);
+      const findingMatch = f.findings && f.findings.some(item =>
+        (item.detector_id && item.detector_id.toLowerCase().includes(q)) ||
+        (item.description && item.description.toLowerCase().includes(q)) ||
+        (item.matched_value && item.matched_value.toLowerCase().includes(q))
+      );
+      return pathMatch || shaMatch || findingMatch;
+    });
+  }
 
   return `
     <div class="card" style="margin-bottom: 24px;">
@@ -607,60 +667,115 @@ function renderScanner() {
       ` : ''}
 
       <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:16px; margin-top:20px;">
-        <div class="card stat-box" style="background:rgba(239, 68, 68, 0.08); border-color:rgba(239, 68, 68, 0.2);">
+        <div class="card stat-box" style="background:rgba(239, 68, 68, 0.08); border-color:rgba(239, 68, 68, 0.2); cursor:pointer;" onclick="setFindingsFilter('MALICIOUS')">
           <span class="stat-label" style="color:#fca5a5;">Malicious</span>
           <span class="stat-value" style="color:#ef4444;">${maliciousCount}</span>
         </div>
-        <div class="card stat-box" style="background:rgba(245, 158, 11, 0.08); border-color:rgba(245, 158, 11, 0.2);">
+        <div class="card stat-box" style="background:rgba(245, 158, 11, 0.08); border-color:rgba(245, 158, 11, 0.2); cursor:pointer;" onclick="setFindingsFilter('SUSPICIOUS')">
           <span class="stat-label" style="color:#fcd34d;">Suspicious</span>
           <span class="stat-value" style="color:#f59e0b;">${suspiciousCount}</span>
         </div>
-        <div class="card stat-box" style="background:rgba(16, 185, 129, 0.08); border-color:rgba(16, 185, 129, 0.2);">
-          <span class="stat-label" style="color:#6ee7b7;">Scanned Files</span>
+        <div class="card stat-box" style="background:rgba(16, 185, 129, 0.08); border-color:rgba(16, 185, 129, 0.2); cursor:pointer;" onclick="setFindingsFilter('CLEAN')">
+          <span class="stat-label" style="color:#6ee7b7;">Clean / Scanned</span>
           <span class="stat-value" style="color:#10b981;">${state.scannedFiles}</span>
         </div>
       </div>
     </div>
 
     <div class="card">
-      <h3 style="margin-bottom:16px; font-weight:600; display:flex; align-items:center; gap:8px;">
-        <i data-lucide="shield-alert"></i> Detected Threats & Findings
-      </h3>
-      <div class="table-wrapper">
-        <table>
-          <thead>
-            <tr>
-              <th>Status</th>
-              <th>File</th>
-              <th>Findings & Detections</th>
-              <th>SHA-256 Hash</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${state.findings.length === 0 ? '<tr><td colspan="4" style="text-align:center; color:var(--text-muted); padding:32px;">No threats found in current scan.</td></tr>' : ''}
-            ${state.findings.map(f => `
-              <tr>
-                <td>
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; margin-bottom:20px;">
+        <h3 style="font-weight:600; display:flex; align-items:center; gap:8px;">
+          <i data-lucide="shield-alert"></i> Detected Threats & Findings (${filtered.length})
+        </h3>
+
+        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+          <!-- Quick Filter Buttons -->
+          <div style="display:flex; gap:6px; background:rgba(0,0,0,0.3); padding:4px; border-radius:8px; border:1px solid var(--border-color);">
+            <button class="btn btn-sm ${state.findingsFilter === 'ALL' ? 'btn-primary' : 'btn-secondary'}" style="padding:4px 10px; font-size:0.8rem;" onclick="setFindingsFilter('ALL')">
+              All (${totalCount})
+            </button>
+            <button class="btn btn-sm ${state.findingsFilter === 'MALICIOUS' ? 'btn-primary' : 'btn-secondary'}" style="padding:4px 10px; font-size:0.8rem; ${state.findingsFilter === 'MALICIOUS' ? 'background:#ef4444; border-color:#ef4444;' : 'color:#ef4444;'}" onclick="setFindingsFilter('MALICIOUS')">
+              🚨 Malicious (${maliciousCount})
+            </button>
+            <button class="btn btn-sm ${state.findingsFilter === 'SUSPICIOUS' ? 'btn-primary' : 'btn-secondary'}" style="padding:4px 10px; font-size:0.8rem; ${state.findingsFilter === 'SUSPICIOUS' ? 'background:#f59e0b; border-color:#f59e0b;' : 'color:#f59e0b;'}" onclick="setFindingsFilter('SUSPICIOUS')">
+              ⚠️ Suspicious (${suspiciousCount})
+            </button>
+            <button class="btn btn-sm ${state.findingsFilter === 'CLEAN' ? 'btn-primary' : 'btn-secondary'}" style="padding:4px 10px; font-size:0.8rem; ${state.findingsFilter === 'CLEAN' ? 'background:#10b981; border-color:#10b981;' : 'color:#10b981;'}" onclick="setFindingsFilter('CLEAN')">
+              ✅ Clean (${cleanCount})
+            </button>
+          </div>
+
+          <!-- Real-time Search Input -->
+          <div style="position:relative; min-width:240px;">
+            <input type="text" class="input-field" placeholder="Search file or rule ID..." value="${state.findingsSearch || ''}" oninput="setFindingsSearch(this.value)" style="padding-left:32px; font-size:0.85rem; height:34px;">
+            <i data-lucide="search" style="position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--text-muted); width:14px; height:14px;"></i>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        ${filtered.length === 0 ? '<div style="text-align:center; color:var(--text-muted); padding:36px; background:rgba(0,0,0,0.2); border-radius:8px;">No matching findings for the selected filter/search query.</div>' : ''}
+        ${filtered.map((f, idx) => {
+          const key = f.sha256 || f.file_path || idx;
+          const isExpanded = !!state.expandedFindings[key];
+          const fileName = f.file_path ? f.file_path.split('/').pop() : 'Unknown File';
+
+          return `
+            <div class="card" style="padding:0; overflow:hidden; background:rgba(15, 23, 42, 0.4); border:1px solid ${f.verdict === 'MALICIOUS' ? 'rgba(239, 68, 68, 0.3)' : f.verdict === 'SUSPICIOUS' ? 'rgba(245, 158, 11, 0.3)' : 'var(--border-color)'};">
+              <div style="padding:14px 18px; display:flex; align-items:center; justify-content:space-between; gap:16px; cursor:pointer;" onclick="toggleExpandFinding('${key}')">
+                <div style="display:flex; align-items:center; gap:12px; flex:1; overflow:hidden;">
+                  <i data-lucide="${isExpanded ? 'chevron-down' : 'chevron-right'}" style="color:var(--text-muted); width:18px; height:18px;"></i>
                   <span class="badge badge-${f.verdict.toLowerCase()}">${f.verdict}</span>
-                </td>
-                <td style="font-family:var(--font-mono); font-size:0.85rem; max-width:300px; word-break:break-all;">
-                  ${f.file_path}
-                </td>
-                <td>
-                  ${f.findings.map(finding => `
-                    <div style="margin-bottom:4px;">
-                      <strong style="color:var(--warning)">[${finding.detector_id}]</strong> ${finding.description}
-                      ${finding.matched_value ? `<div style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Matched: ${finding.matched_value}</div>` : ''}
-                    </div>
-                  `).join('')}
-                </td>
-                <td style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-dim);">
-                  ${f.sha256 ? f.sha256.substring(0, 16) + '...' : '-'}
-                </td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
+                  <div style="overflow:hidden;">
+                    <div style="font-weight:600; font-family:var(--font-mono); font-size:0.9rem; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${fileName}</div>
+                    <div style="font-size:0.75rem; color:var(--text-muted); font-family:var(--font-mono); text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${f.file_path}</div>
+                  </div>
+                </div>
+
+                <div style="display:flex; align-items:center; gap:10px;">
+                  <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                    ${(f.findings || []).slice(0, 3).map(item => `
+                      <span class="badge badge-warning" style="font-size:0.7rem;">[${item.detector_id}]</span>
+                    `).join('')}
+                    ${(f.findings || []).length > 3 ? `<span class="badge badge-secondary" style="font-size:0.7rem;">+${(f.findings || []).length - 3} more</span>` : ''}
+                  </div>
+
+                  ${f.verdict !== 'CLEAN' && f.sha256 ? `
+                    <button class="btn btn-sm btn-secondary" style="color:var(--danger); border-color:rgba(239, 68, 68, 0.3);" title="Move file to quarantine" onclick="event.stopPropagation(); quarantineFileNow('${f.sha256}', '${f.file_path.replace(/'/g, "\\'")}')">
+                      <i data-lucide="box"></i> Quarantine
+                    </button>
+                  ` : ''}
+                </div>
+              </div>
+
+              ${isExpanded ? `
+                <div style="padding:16px 18px; border-top:1px solid var(--border-color); background:rgba(0,0,0,0.3);">
+                  <div style="margin-bottom:12px; display:flex; justify-content:space-between; font-size:0.8rem; color:var(--text-muted); font-family:var(--font-mono);">
+                    <span>Full Path: ${f.file_path}</span>
+                    <span>SHA-256: ${f.sha256 || '-'}</span>
+                  </div>
+
+                  ${(f.findings || []).length === 0 ? '<div style="color:var(--text-muted); font-size:0.85rem;">No specific threat signature triggered for this clean file.</div>' : ''}
+                  <div style="display:flex; flex-direction:column; gap:8px;">
+                    ${(f.findings || []).map(item => `
+                      <div style="padding:10px 12px; background:rgba(15, 23, 42, 0.6); border-radius:6px; border:1px solid rgba(255,255,255,0.05);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                          <strong style="color:var(--warning); font-size:0.85rem;">[${item.detector_id}] ${item.description || ''}</strong>
+                          ${item.severity ? `<span class="badge badge-${item.severity === 'CRITICAL' || item.severity === 'HIGH' ? 'malicious' : 'suspicious'}" style="font-size:0.65rem;">${item.severity}</span>` : ''}
+                        </div>
+                        ${item.matched_value ? `
+                          <div style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-muted); margin-top:4px; word-break:break-all; background:rgba(0,0,0,0.4); padding:6px 10px; border-radius:4px;">
+                            Matched Payload: <span style="color:#6ee7b7;">${item.matched_value}</span>
+                          </div>
+                        ` : ''}
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('')}
       </div>
     </div>
   `;
@@ -950,4 +1065,8 @@ function attachEvents() {
   window.removeCustomRoot = removeCustomRoot;
   window.addCustomRootAndClose = addCustomRootAndClose;
   window.setQuarantineDirAndClose = setQuarantineDirAndClose;
+  window.setFindingsFilter = setFindingsFilter;
+  window.setFindingsSearch = setFindingsSearch;
+  window.toggleExpandFinding = toggleExpandFinding;
+  window.quarantineFileNow = quarantineFileNow;
 }
