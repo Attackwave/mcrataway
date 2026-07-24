@@ -794,7 +794,7 @@ function renderRules() {
 
 function renderSettings() {
   return `
-    <div class="card" style="max-width:700px;">
+    <div class="card" style="max-width:700px; margin:0 auto;">
       <h2 style="font-weight:600; margin-bottom:20px; display:flex; align-items:center; gap:10px;">
         <i data-lucide="settings" style="color:var(--primary)"></i> Scanner Settings
       </h2>
