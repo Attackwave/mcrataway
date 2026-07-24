@@ -531,9 +531,9 @@ function renderHeader() {
 
   return `
     <header>
-      <div class="brand">
-        <div class="brand-icon ${isRunning ? 'radar-pulse' : ''}">
-          <i data-lucide="shield-alert" style="color:#fff; width:24px; height:24px;"></i>
+      <div class="brand" style="display:flex; align-items:center; gap:12px;">
+        <div class="brand-icon ${isRunning ? 'radar-pulse' : ''}" style="width:36px; height:36px; padding:0; overflow:hidden; border-radius:8px; background:transparent; display:flex; align-items:center; justify-content:center;">
+          <img src="/static/images/logo.png" alt="mcRATAway Logo" style="width:100%; height:100%; object-fit:cover;">
         </div>
         <span>mcrataway</span>
         <span class="brand-version">v${state.version || '1.0.0'}</span>
