@@ -36,6 +36,7 @@ class ConstantPoolEntry:
     reference_kind: int | None = None
     reference_index: int | None = None
     name_and_type_index: int | None = None
+    bootstrap_method_attr_index: int | None = None
 
 
 class ConstantPool:
@@ -44,6 +45,8 @@ class ConstantPool:
     def __init__(self) -> None:
         self.entries: dict[int, ConstantPoolEntry] = {}
         self._utf8_cache: dict[int, str] = {}
+        self._all_strings_cache: list[str] | None = None
+        self._all_string_literals_cache: list[str] | None = None
 
     def parse(self, data: bytes, count: int) -> int:
         """Parse count-1 entries from data starting at current position.
@@ -117,7 +120,12 @@ class ConstantPool:
                     pos += 2
 
                 elif tag == CONSTANT_InvokeDynamic:
-                    pos += 4  # bootstrap_method_attr_index + name_and_type_index
+                    entry.bootstrap_method_attr_index = struct.unpack(
+                        ">H", data[pos : pos + 2]
+                    )[0]
+                    pos += 2
+                    entry.name_and_type_index = struct.unpack(">H", data[pos : pos + 2])[0]
+                    pos += 2
 
                 else:
                     return pos  # unknown tag, stop gracefully
@@ -179,20 +187,52 @@ class ConstantPool:
         descriptor = self.get_utf8(nat_entry.descriptor_index or 0)
         return (class_name, name, descriptor)
 
+    def resolve_method_handle(self, mh_index: int) -> tuple[int, str, str, str]:
+        """Resolve a CONSTANT_MethodHandle entry to
+        (reference_kind, owner, name, descriptor).
+
+        reference_kind follows JVM spec table 4.4.8-A (1-9): 6/8 are
+        REF_invokeStatic / REF_newInvokeSpecial, the two kinds
+        LambdaMetafactory bootstrap methods actually use in practice
+        (the "real" method a lambda/method-reference resolves to).
+        The referenced entry is itself a Fieldref/Methodref/
+        InterfaceMethodref, so this delegates to resolve_method_ref
+        for the owner/name/descriptor once the reference_index is
+        known.
+        """
+        entry = self.entries.get(mh_index)
+        if not entry or entry.tag != CONSTANT_MethodHandle:
+            return (0, "", "", "")
+
+        ref_kind = entry.reference_kind or 0
+        owner, name, descriptor = self.resolve_method_ref(entry.reference_index or 0)
+        return (ref_kind, owner, name, descriptor)
+
     def all_strings(self) -> list[str]:
-        """Return all Utf8 string values in the constant pool."""
-        strings: list[str] = []
-        for entry in self.entries.values():
-            if entry.tag == CONSTANT_Utf8 and entry.value:
-                strings.append(entry.value)
-        return strings
+        """Return all Utf8 string values in the constant pool.
+
+        Cached: the pool is immutable once parsed (nothing mutates
+        ``self.entries`` after :meth:`parse` returns), and detectors
+        such as D02/D04/D05/D07/D08/D11 each call this independently
+        per class — several of them more than once — so a class with
+        a large constant pool was being rescanned repeatedly.
+        """
+        if self._all_strings_cache is None:
+            self._all_strings_cache = [
+                entry.value
+                for entry in self.entries.values()
+                if entry.tag == CONSTANT_Utf8 and entry.value
+            ]
+        return self._all_strings_cache
 
     def all_string_literals(self) -> list[str]:
-        """Return all String constant values."""
-        strings: list[str] = []
-        for entry in self.entries.values():
-            if entry.tag == CONSTANT_String:
-                s = self.get_string_literal(entry.index)
-                if s:
-                    strings.append(s)
-        return strings
+        """Return all String constant values. Cached; see :meth:`all_strings`."""
+        if self._all_string_literals_cache is None:
+            strings: list[str] = []
+            for entry in self.entries.values():
+                if entry.tag == CONSTANT_String:
+                    s = self.get_string_literal(entry.index)
+                    if s:
+                        strings.append(s)
+            self._all_string_literals_cache = strings
+        return self._all_string_literals_cache

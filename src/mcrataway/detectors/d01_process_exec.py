@@ -26,7 +26,7 @@ class D01ProcessExec(Detector):
             if not method.bytecode:
                 continue
 
-            invokes = resolve_invokes(method.bytecode, cp)
+            invokes = resolve_invokes(method.bytecode, cp, class_file.bootstrap_methods)
             for inv in invokes:
                 if inv.owner == "java/lang/Runtime" and inv.name == "exec":
                     evidence.append(
@@ -40,7 +40,7 @@ class D01ProcessExec(Detector):
                         )
                     )
 
-                elif inv.owner == "java/lang/ProcessBuilder" and inv.name in ("__init__", "start"):
+                elif inv.owner == "java/lang/ProcessBuilder" and inv.name in ("<init>", "start"):
                     evidence.append(
                         self._add_evidence(
                             class_file,
@@ -52,4 +52,36 @@ class D01ProcessExec(Detector):
                         )
                     )
 
+        return evidence
+
+    def analyze_reconstructed_strings(
+        self, class_file: ClassFile, strings: list[str]
+    ) -> list[Evidence]:
+        """Flag de-obfuscated references to process-execution APIs.
+
+        A benign mod has no reason to hide "java.lang.Runtime" or
+        "ProcessBuilder" in a byte array — the concealment itself is
+        the signal, so this is rated CRITICAL rather than the HIGH used
+        for the equivalent plain-text/bytecode match.
+        """
+        evidence: list[Evidence] = []
+        indicators = (
+            "java.lang.Runtime",
+            "java/lang/Runtime",
+            "getRuntime",
+            "ProcessBuilder",
+        )
+        for s in strings:
+            for indicator in indicators:
+                if indicator in s:
+                    evidence.append(
+                        self._add_evidence(
+                            class_file,
+                            "",
+                            0,
+                            f"Obfuscated reference to process execution API: {indicator}",
+                            Severity.CRITICAL,
+                            matched_value=s[:200],
+                        )
+                    )
         return evidence

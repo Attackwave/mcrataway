@@ -51,6 +51,49 @@ rules:
 2. Load it via CLI: `mcrataway scan --auto --rules /path/to/rules.yaml`
 3. Or via API: `PUT /rules/{pack}`
 
+Rules loaded locally this way (from a file you already have on disk)
+are trusted implicitly — signing only applies to the *remote update*
+path, described next.
+
+## Remote Rule Updates and Signing
+
+`mcrataway.rules.updater.RuleUpdater.fetch_remote_rules()` downloads
+rule packs over HTTPS and installs them into
+`~/.mcrataway/rules/`. Because these rules directly control what gets
+flagged (and, with auto-quarantine, what gets deleted), every
+downloaded pack must carry a valid detached Ed25519 signature — see
+`src/mcrataway/rules/signing.py`.
+
+**By default, `TRUSTED_PUBLIC_KEYS_B64` is empty, so all remote rule
+packs are rejected.** This is the safe default: without a provisioned
+signing key, there is no way to distinguish a legitimate update from
+one served by a compromised mirror or repository takeover, so remote
+updates simply do not take effect until a key is added.
+
+To provision signing for your own rule-pack distribution:
+
+```python
+from mcrataway.rules.signing import generate_keypair, sign_data
+
+# One-time: generate a keypair. Keep the private key offline/secret.
+private_key_b64, public_key_b64 = generate_keypair()
+
+# Add public_key_b64 to TRUSTED_PUBLIC_KEYS_B64 in signing.py and ship
+# that with the scanner (it is the trust root, not downloaded).
+
+# For each rule pack file you publish, sign its exact bytes and
+# publish the result as `<filename>.sig` alongside `<filename>`:
+data = open("suspicious_indicators.yaml", "rb").read()
+signature_b64 = sign_data(data, private_key_b64)
+open("suspicious_indicators.yaml.sig", "w").write(signature_b64)
+```
+
+`fetch_remote_rules()` fetches `<url>` and `<url>.sig`, verifies the
+signature against the trust root, and only writes the pack to disk on
+success. On failure (missing signature, invalid signature, untrusted
+key) the previously installed version — if any — is left untouched;
+the fetch is logged as a warning, not treated as fatal.
+
 ## Testing Rules
 
 ```bash

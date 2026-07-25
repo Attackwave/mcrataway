@@ -47,7 +47,7 @@ class D03DynamicLoading(Detector):
             if not method.bytecode:
                 continue
 
-            invokes = resolve_invokes(method.bytecode, cp)
+            invokes = resolve_invokes(method.bytecode, cp, class_file.bootstrap_methods)
             for inv in invokes:
                 if inv.owner in dangerous_classes:
                     evidence.append(

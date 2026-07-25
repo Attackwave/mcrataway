@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from mcrataway.config import UserConfig, ensure_config_dir
 from mcrataway.constants import SCANNER_VERSION
 from mcrataway.core.quarantine import QuarantineManager
-from mcrataway.server.auth import verify_token
+from mcrataway.server.auth import ensure_token, verify_origin, verify_token
 from mcrataway.server.jobs import JobRegistry
 from mcrataway.server.routes import findings, quarantine, reports, rules, scan, system
 
@@ -43,6 +43,7 @@ def _is_public_path(path: str) -> bool:
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     ensure_config_dir()
+    ensure_token()
     config = UserConfig.load()
     job_registry = JobRegistry()
     q_target = Path(config.quarantine_dir) if config.quarantine_dir else None
@@ -59,9 +60,18 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Token auth middleware — only enforced if ~/.mcrataway/token exists.
+    # Origin/token guard. Origin is checked for every request (including
+    # "public" paths) — a foreign Origin means a browser tab on another
+    # site is driving this API via fetch(), and the SPA shell itself has
+    # no reason to be loaded cross-origin either. Token check applies
+    # only to non-public API paths, same as before.
     @app.middleware("http")
     async def token_guard(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if not verify_origin(request):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Cross-origin request rejected"},
+            )
         if _is_public_path(request.url.path) or verify_token(request):
             return await call_next(request)
         return JSONResponse(

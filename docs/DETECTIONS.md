@@ -89,10 +89,22 @@ Each detector analyzes parsed class files and writes evidence to a shared `Evide
 
 | Signal | Severity | Description |
 |--------|----------|-------------|
-| High Shannon entropy (>4.5) | LOW | Encoded/encrypted strings |
+| High Shannon entropy (>5.8) | LOW | Encoded/encrypted strings |
 | Single-letter package parts | MEDIUM | Heavily obfuscated class names |
-| Excessive synthetic methods | MEDIUM | Synthetic flag abuse |
-| Synthetic fields | LOW | Hidden field markers |
+| Control-flow flattening dispatcher | MEDIUM | See below |
+
+**Control-flow flattening**: detects the dispatcher shape produced by
+control-flow-flattening obfuscators (Allatori/ProGuard-style) — a
+central `tableswitch`/`lookupswitch` on a state variable, inside a
+loop, where most cases end with a `goto` back to the dispatcher rather
+than falling out of the switch. A switch is only flagged when it has
+at least 4 targets AND a goto-to-target ratio of at least 0.5, AND
+there is no loop-bound comparison (`arraylength`/`if_icmp*` etc.)
+immediately preceding the switch's selector — that last check is what
+distinguishes a flattened state machine from the much more common
+"ordinary loop containing a switch statement" shape, which produces
+the same switch+multiple-goto pattern (every `break`/`continue` in a
+loop-body switch compiles to a `goto` too) but is not obfuscation.
 
 ### D10 — Reflection Indirect Access
 
@@ -103,6 +115,22 @@ Each detector analyzes parsed class files and writes evidence to a shared `Evide
 | `VarHandle` | MEDIUM | Unsafe field access |
 | `StackWalker` | MEDIUM | Stack frame inspection |
 | `sun/misc/Unsafe` | MEDIUM | Unsafe memory access |
+| Method reference resolving to a different class | LOW | See below |
+
+**Cross-class method references**: `ClassFile.bootstrap_methods` (the
+class-level `BootstrapMethods` attribute) is parsed, and
+`resolve_invokes()` follows `invokedynamic` call sites through it to
+their real target — the `LambdaMetafactory` bootstrap argument that
+actually names the lambda body / method reference. This closes a
+specific evasion: splitting a dangerous capability into a separate
+class and reaching it only via a method reference (e.g. `Runnable r =
+EvilRunner::detonate;`) previously left no trace in the calling
+class's resolved invokes at all, since `invokedynamic` came back with
+an empty owner/name. A resolved target in a *different* class than the
+one being analyzed is flagged at LOW — ordinary functional-interface
+usage does this constantly, so it is not inherently suspicious on its
+own, but it is exactly the shape used to defeat single-class analysis
+and is worth escalating when combined with other findings.
 
 ### D11 — On-Chain C2
 
@@ -123,6 +151,48 @@ Each detector analyzes parsed class files and writes evidence to a shared `Evide
 | PNG text chunks | LOW | Hidden data in PNG metadata |
 | Embedded script in pack.mcmeta | HIGH | JavaScript in resource pack metadata |
 | Excessive .mcfunction calls | MEDIUM | Potential DoS via recursive function chains |
+
+### D13 — Mixin/Coremod Abuse
+
+Fabric/Forge Mixins let a mod rewrite bytecode in the game itself (or
+another mod) at load time. A malicious Mixin targeting the class that
+already holds a session token or handles network auth never needs to
+call any of the APIs D01-D11 look for — it just edits the method that
+already has what it wants. This is a blind spot none of the other
+bytecode-level detectors cover, since the "target" a Mixin edits is
+declared in JSON config, not derivable from the Mixin class's own
+bytecode alone.
+
+| Signal | Severity | Description |
+|--------|----------|-------------|
+| Mixin config (`*.mixins.json`) declaring a mixin class named after a sensitive target (Session, MinecraftClient, YggdrasilAuthenticationService, ClientConnection, packet encode/decode) | MEDIUM | Naming-convention signal — not a guarantee, but the same first-pass signal a human reviewer would use |
+| `@Redirect`/`@Overwrite` annotation string + sensitive target name in the same class's constant pool | HIGH | These annotations fully substitute or reroute behavior at the injection point (unlike `@Inject`, which runs alongside the original method) |
+| `FMLCorePlugin` / `FMLCorePluginContainsFMLMod` in `META-INF/MANIFEST.MF` | MEDIUM | Forge's pre-Mixin coremod mechanism — registers a ClassLoader transformer with full bytecode-rewrite access before any other mod code runs |
+
+Operates on archive entries (mixin JSON configs, the manifest) rather
+than parsed classes, since the mixin target is declared in JSON.
+
+### D14 — Signature/Manifest Tamper
+
+Detects a JAR that was legitimately signed and then had a payload
+added afterward ("trojanizing" a real mod), plus manifest entries that
+load code from outside the mod itself. This scanner does not verify
+cryptographic signatures (that requires the signer's certificate
+chain); instead it checks the cheaper, still-strong signal of whether
+every `.class` entry in the archive is actually *listed* in the
+signature block — an entry added after signing simply is not.
+
+| Signal | Severity | Description |
+|--------|----------|-------------|
+| `.class` entry present in the archive but absent from its `META-INF/*.SF` file | HIGH | Added after the JAR was signed — a real JVM would reject this JAR outright during signature verification |
+| `Class-Path` entry in `META-INF/MANIFEST.MF` | MEDIUM | Loads additional JARs from outside normal mod dependency resolution — legitimate mods essentially never need this |
+
+Only applies to the top-level archive (a signature block found in a
+nested archive belongs to that inner mod's own signing, not the outer
+artifact being scanned) and only checks `.class` entries against the
+signature block, not other resource files, to avoid noise from build
+tooling that can legitimately vary non-code entries between build and
+sign steps.
 
 ## Signature Rules
 

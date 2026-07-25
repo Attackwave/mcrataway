@@ -41,7 +41,7 @@ class D08CredentialTheft(Detector):
             if not method.bytecode:
                 continue
 
-            invokes = resolve_invokes(method.bytecode, cp)
+            invokes = resolve_invokes(method.bytecode, cp, class_file.bootstrap_methods)
             for inv in invokes:
                 if (inv.owner, inv.name) in session_methods:
                     evidence.append(
@@ -55,7 +55,23 @@ class D08CredentialTheft(Detector):
                         )
                     )
 
-        # File path references to sensitive locations
+        evidence.extend(self._scan_paths(class_file, cp.all_strings(), obfuscated=False))
+        return evidence
+
+    def analyze_reconstructed_strings(
+        self, class_file: ClassFile, strings: list[str]
+    ) -> list[Evidence]:
+        """Flag de-obfuscated references to credential file locations.
+
+        Hiding "launcher_accounts.json" or "Login Data" in a byte array
+        has no legitimate purpose — no benign mod needs to conceal that
+        it reads these paths — so the match is rated CRITICAL.
+        """
+        return self._scan_paths(class_file, strings, obfuscated=True)
+
+    def _scan_paths(
+        self, class_file: ClassFile, strings: list[str], obfuscated: bool
+    ) -> list[Evidence]:
         sensitive_paths = [
             "session.json",
             "launcher_accounts.json",
@@ -68,7 +84,10 @@ class D08CredentialTheft(Detector):
             "tokens/localstorage",
         ]
 
-        for s in cp.all_strings():
+        evidence: list[Evidence] = []
+        severity = Severity.CRITICAL if obfuscated else Severity.HIGH
+        prefix = "Obfuscated sensitive file path" if obfuscated else "Sensitive file path"
+        for s in strings:
             for sp in sensitive_paths:
                 if sp in s:
                     evidence.append(
@@ -76,8 +95,8 @@ class D08CredentialTheft(Detector):
                             class_file,
                             "",
                             0,
-                            f"Sensitive file path: {sp}",
-                            Severity.HIGH,
+                            f"{prefix}: {sp}",
+                            severity,
                             matched_value=s[:200],
                         )
                     )

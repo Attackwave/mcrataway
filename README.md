@@ -13,7 +13,7 @@
 
 * 🚀 **Pure-Python Bytecode Analysis**: Operates directly on Java class bytecodes (`.class` files inside `.jar` archives) without requiring a installed Java Runtime Environment (JRE/JDK).
 * 🔍 **Cross-Platform Auto-Discovery**: Automatically locates standard Minecraft installations, modloaders, and third-party launchers (Prism Launcher, CurseForge, Modrinth, MultiMC, GDLauncher) across **Linux**, **macOS**, and **Windows**.
-* 🎯 **12 Capability Detectors & Correlation Gates**: Combines behavioral bytecode detection with class-scoped correlation gates to minimize false positives while identifying hidden malicious patterns.
+* 🎯 **14 Capability Detectors & Correlation Gates**: Combines behavioral bytecode detection with class-scoped correlation gates to minimize false positives while identifying hidden malicious patterns.
 * 🛡️ **YAML Threat Intelligence Rules**: Supports custom and dynamically updateable YAML rule packs for rapid threat signature distribution against new obfuscators and malware variants.
 * 🔒 **Reversible Safe Quarantine**: Isolates suspicious or infected files into a secure directory accompanied by JSON metadata manifests for safe analysis or easy restoration.
 * 💻 **Web UI & Headless CLI**:
@@ -24,7 +24,7 @@
 
 ## 🔬 Detection Capabilities
 
-mcRATAway features 12 specialized capability detectors:
+mcRATAway features 14 specialized capability detectors:
 
 | ID | Capability | Description |
 |---|---|---|
@@ -40,6 +40,8 @@ mcRATAway features 12 specialized capability detectors:
 | **D10** | **Reflection Indirect** | Uncovers hidden invocations using `MethodHandles` and `LambdaMetafactory`. |
 | **D11** | **On-Chain C2** | Detects blockchain-based command-and-control infrastructure (e.g., Ethereum `eth_call` lookups). |
 | **D12** | **Resource & Datapack Exploits** | Scans `.png`, `.mcfunction`, and JSON assets for buffer overflow and script abuse. |
+| **D13** | **Mixin / Coremod Abuse** | Flags Fabric/Forge Mixins and coremods targeting session/auth/network-handling classes — bytecode rewriting that never needs to call any API the other detectors watch for. |
+| **D14** | **Signature / Manifest Tamper** | Detects classes added to a JAR after it was signed (trojanized mods) and `Class-Path` manifest entries loading external JARs. |
 
 ---
 

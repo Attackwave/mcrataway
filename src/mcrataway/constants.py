@@ -334,3 +334,17 @@ CONSTANT_NameAndType = 12
 CONSTANT_MethodHandle = 15
 CONSTANT_MethodType = 16
 CONSTANT_InvokeDynamic = 18
+
+# CONSTANT_MethodHandle reference_kind values (JVM spec table 4.4.8-A).
+# LambdaMetafactory bootstrap arguments almost always use kind 6 or 8
+# (a plain static method, or a constructor reference) to point at the
+# actual lambda-body/method-reference target.
+REF_getField = 1
+REF_getStatic = 2
+REF_putField = 3
+REF_putStatic = 4
+REF_invokeVirtual = 5
+REF_invokeStatic = 6
+REF_invokeSpecial = 7
+REF_newInvokeSpecial = 8
+REF_invokeInterface = 9

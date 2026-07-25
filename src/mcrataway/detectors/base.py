@@ -27,6 +27,20 @@ class Detector(ABC):
         """
         return []
 
+    def analyze_reconstructed_strings(
+        self, class_file: ClassFile, strings: list[str]
+    ) -> list[Evidence]:
+        """Analyze de-obfuscated strings recovered from hidden byte/char
+        arrays, XOR ciphers, etc. (see ``string_reconstructor``).
+
+        Default implementation returns no evidence. Detectors that key
+        off constant-pool string content (D01, D02, D05, D07, D08, D11)
+        override this to also match against strings an obfuscator
+        deliberately hid — a hidden reference to a dangerous API is at
+        least as suspicious as a plain-text one.
+        """
+        return []
+
     def _add_evidence(
         self,
         class_file: ClassFile,

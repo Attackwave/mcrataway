@@ -2,8 +2,7 @@
 
 import fnmatch
 import hashlib
-import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,7 +13,14 @@ from mcrataway.core.evidence import Evidence, EvidenceIndex
 from mcrataway.core.quarantine import QuarantineManager
 from mcrataway.core.verdict import VerdictAggregator
 from mcrataway.detectors.base import Detector
-from mcrataway.parsers.archive import ArchiveReader, find_class_entries
+from mcrataway.parsers.archive import (
+    DEFAULT_MAX_NESTING_DEPTH,
+    ArchiveEntry,
+    ArchiveReader,
+    SizeBudget,
+    is_java_class,
+    is_nested_archive,
+)
 from mcrataway.parsers.classfile import parse_class
 from mcrataway.parsers.manifest import parse_archive_manifest
 from mcrataway.parsers.string_reconstructor import reconstruct_strings
@@ -45,6 +51,7 @@ class ScanEngine:
         detectors: list[Detector] | None = None,
         whitelisted_hashes: set[str] | list[str] | None = None,
         excluded_paths: list[str] | None = None,
+        max_nesting_depth: int = DEFAULT_MAX_NESTING_DEPTH,
     ) -> None:
         self.rules = rules or []
         self.quarantine = quarantine or QuarantineManager()
@@ -53,6 +60,7 @@ class ScanEngine:
         self.verdict_agg = VerdictAggregator()
         self.whitelisted_hashes = set(whitelisted_hashes or [])
         self.excluded_paths = excluded_paths or []
+        self.max_nesting_depth = max_nesting_depth
 
     @staticmethod
     def _default_detectors() -> list[Detector]:
@@ -69,6 +77,7 @@ class ScanEngine:
         from mcrataway.detectors.d10_reflection_indirect import D10ReflectionIndirect
         from mcrataway.detectors.d11_onchain_c2 import D11OnchainC2
         from mcrataway.detectors.d12_resourcepack_exploit import D12ResourcepackExploit
+        from mcrataway.detectors.d13_mixin_coremod import D13MixinCoremod
 
         return [
             D01ProcessExec(),
@@ -82,13 +91,13 @@ class ScanEngine:
             D09Obfuscation(),
             D10ReflectionIndirect(),
             D11OnchainC2(),
+            D13MixinCoremod(),
             D12ResourcepackExploit(),
         ]
 
     def scan_files(
         self,
         files: list[Path],
-        root: str = "",
         on_progress: Callable[[Path], None] | None = None
     ) -> list[ArtifactResult]:
         """Scan a list of files concurrently using ``max_workers`` threads.
@@ -99,14 +108,23 @@ class ScanEngine:
         if not files:
             return []
 
-        lock = threading.Lock()
-
         def _process_file(f: Path) -> ArtifactResult:
             if on_progress:
-                with lock:
-                    on_progress(f)
+                # No lock here: synchronizing an arbitrary caller-supplied
+                # callback is the caller's responsibility, not this
+                # method's. The server's on_progress (server/routes/scan.py)
+                # is already thread-safe via loop.call_soon_threadsafe; the
+                # CLI's on_progress (cli.py) drives a rich.progress.Progress
+                # instance, which is NOT safe to update concurrently from
+                # multiple threads, so the CLI wraps its own callback in a
+                # lock. Locking unconditionally here previously serialized
+                # every worker thread around this call regardless of
+                # whether the callback needed it, eliminating most of the
+                # benefit of max_workers > 1 for the (already thread-safe)
+                # server path.
+                on_progress(f)
             try:
-                result = self._scan_single(f, root)
+                result = self._scan_single(f)
                 self.maybe_quarantine(f, result)
                 return result
             except Exception as exc:
@@ -125,15 +143,24 @@ class ScanEngine:
                     ],
                 )
 
-        if self.max_workers > 1 and len(files) > 1:
-            results: list[ArtifactResult] = []
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                future_to_file = {executor.submit(_process_file, f): f for f in files}
-                for future in as_completed(future_to_file):
-                    results.append(future.result())
-            return results
-        else:
-            return [_process_file(f) for f in files]
+        try:
+            if self.max_workers > 1 and len(files) > 1:
+                results: list[ArtifactResult] = []
+                with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                    future_to_file = {executor.submit(_process_file, f): f for f in files}
+                    for future in as_completed(future_to_file):
+                        results.append(future.result())
+                return results
+            else:
+                return [_process_file(f) for f in files]
+        finally:
+            # Clear the bytecode decode cache after every scan job. A
+            # long-running `mcrataway serve` process performs many
+            # scan jobs over its lifetime; without this the cache
+            # would accumulate one entry per distinct method body ever
+            # seen across every job, unboundedly.
+            from mcrataway.parsers.instructions import clear_cache
+            clear_cache()
 
     def maybe_quarantine(self, path: Path, result: ArtifactResult) -> None:
         """Quarantine the file if its verdict and the config warrant it."""
@@ -144,7 +171,7 @@ class ScanEngine:
         if (is_mal and do_mal) or (is_susp and do_susp):
             self.quarantine.quarantine(path, result)
 
-    def _scan_single(self, path: Path, root: str) -> ArtifactResult:
+    def _scan_single(self, path: Path) -> ArtifactResult:
         """Scan a single file."""
         str_path = str(path)
         for pattern in self.excluded_paths:
@@ -171,11 +198,11 @@ class ScanEngine:
         suffix = path.suffix.lower()
 
         if suffix in (".jar", ".zip"):
-            return self._scan_archive(path, file_hash, root)
+            return self._scan_archive(path, file_hash)
         elif suffix in (".js", ".ts", ".mcfunction", ".lua"):
-            return self._scan_script(path, file_hash, root)
+            return self._scan_script(path, file_hash)
         elif suffix in (".json", ".toml", ".yml", ".yaml", ".mcmeta", ".txt"):
-            return self._scan_config(path, file_hash, root)
+            return self._scan_config(path, file_hash)
         else:
             return ArtifactResult(
                 file_path=str(path),
@@ -185,15 +212,24 @@ class ScanEngine:
                 findings=[],
             )
 
-    def _scan_archive(self, path: Path, file_hash: str, root: str) -> ArtifactResult:
-        """Scan a JAR/ZIP archive."""
+    def _scan_archive(self, path: Path, file_hash: str) -> ArtifactResult:
+        """Scan a JAR/ZIP archive, recursing into nested archives.
+
+        Nested archives (a JAR packed inside another JAR, e.g. Forge
+        JarJar / Fabric "nested jars", or a payload staged for later
+        loading) are opened and analyzed too — this is how real
+        Minecraft mod malware (fractureiser Stage-0) hides its payload.
+        Detection of the inner archive is by content (ZIP magic bytes),
+        not by file extension, so renaming the inner archive does not
+        help an attacker evade it.
+        """
         findings: list[Finding] = []
         index = EvidenceIndex()
         metadata: dict[str, Any] = {}
+        size_budget = SizeBudget()
 
         try:
-            reader = ArchiveReader(path)
-            entries = reader.entries()
+            reader = ArchiveReader(path, size_budget=size_budget)
         except Exception:
             return ArtifactResult(
                 file_path=str(path),
@@ -211,74 +247,59 @@ class ScanEngine:
                 metadata=metadata,
             )
 
-        # Parse manifest
-        manifest_entries: dict[str, bytes] = {}
-        manifest_names = {
-            "fabric.mod.json", "mcmod.info", "META-INF/MANIFEST.MF",
-        }
-        for entry in entries:
-            if entry.name in manifest_names or entry.name.endswith("mods.toml"):
-                manifest_entries[entry.name] = entry.data
-        if manifest_entries:
-            manifest = parse_archive_manifest(manifest_entries)
-            metadata["mod_id"] = manifest.mod_id
-            metadata["loader"] = manifest.loader
-            metadata["name"] = manifest.name
-            metadata["version"] = manifest.version
-
-        # Scan class files
-        class_entries = find_class_entries(entries)
-        class_entry_names = {e.name for e in class_entries}
-        for entry in class_entries:
-            parsed = parse_class(entry.data)
-            if parsed:
-                for detector in self.detectors:
-                    evs = detector.analyze_class(parsed)
-                    index.add_many(evs)
-
-                # Reconstruct hidden strings
-                reconstructed = reconstruct_strings(parsed)
-                for rs in reconstructed:
-                    index.add(
-                        Evidence(
-                            detector_id="string_reconstruction",
-                            severity=Severity.INFO,
-                            class_name=rs.class_name,
-                            method_name=rs.method_name,
-                            offset=rs.offset,
-                            description=f"Reconstructed string: {rs.value[:80]}...",
-                            matched_value=rs.value[:200],
-                            context={"technique": rs.technique},
-                        )
+        display_name = path.name
+        try:
+            manifest_metadata = self._analyze_archive_entries(
+                reader.entries(), display_name, index, size_budget, depth=0
+            )
+        except Exception:
+            return ArtifactResult(
+                file_path=str(path),
+                file_hash=file_hash,
+                verdict=Verdict.SUSPICIOUS,
+                confidence=0.5,
+                findings=[
+                    Finding(
+                        detector_id="archive",
+                        severity=Severity.MEDIUM,
+                        description="Archive cannot be read",
+                        file_path=str(path),
                     )
+                ],
+                metadata=metadata,
+            )
+        metadata.update(manifest_metadata)
 
-        # Scan non-class archive entries with archive-aware detectors (e.g. D12)
-        for entry in entries:
-            if entry.name in class_entry_names:
-                continue
-            for detector in self.detectors:
-                archive_method = getattr(detector, "analyze_archive_entry", None)
-                if archive_method is None:
-                    continue
-                evs = archive_method(entry.name, entry.data)
-                index.add_many(evs)
+        from mcrataway.core.behavior_chains import evaluate_chains
+        from mcrataway.detectors.d05_persistence import D05Persistence
+        from mcrataway.detectors.d11_onchain_c2 import D11OnchainC2
+        D05Persistence.escalate_weak_indicators(index)
+        D11OnchainC2.escalate_crypto_with_onchain_indicators(index)
+        # Runs last: needs the final, fully-escalated evidence picture
+        # per class to distinguish a complete multi-step behavior from
+        # a single capability finding — see behavior_chains.py.
+        evaluate_chains(index)
 
-        # Apply signature rules to archive entries
-        for rule in self.rules:
-            matches = rule.matches_archive(entries, class_entries)
-            for match in matches:
+        if size_budget.skipped:
+            for name, reason in size_budget.skipped:
                 index.add(
                     Evidence(
-                        detector_id=f"rule:{rule.pack_id}:{match.rule_id}",
-                        severity=match.severity,
-                        class_name=match.class_name or "",
+                        detector_id="archive",
+                        severity=Severity.MEDIUM,
+                        class_name="",
                         method_name="",
                         offset=0,
-                        description=match.description,
-                        matched_value=match.matched_value,
-                        context={"rule_pack": rule.pack_id, "rule_id": match.rule_id},
+                        description=(
+                            f"Entry not scanned ({reason}): {name} — "
+                            f"result below does not cover this entry"
+                        ),
+                        matched_value=name,
+                        context={"skip_reason": reason},
                     )
                 )
+            metadata["skipped_entries"] = [
+                {"name": n, "reason": r} for n, r in size_budget.skipped
+            ]
 
         verdict, confidence = self.verdict_agg.compute(index)
 
@@ -305,7 +326,226 @@ class ScanEngine:
             metadata=metadata,
         )
 
-    def _scan_script(self, path: Path, file_hash: str, root: str) -> ArtifactResult:
+    def _analyze_archive_entries(
+        self,
+        entries: Iterator[ArchiveEntry],
+        display_path: str,
+        index: EvidenceIndex,
+        size_budget: SizeBudget,
+        depth: int,
+    ) -> dict[str, Any]:
+        """Run detectors and rules over one archive's entries in a single
+        pass, recursing into nested archives up to
+        :data:`DEFAULT_MAX_NESTING_DEPTH`.
+
+        *entries* is consumed as a stream (see
+        ``ArchiveReader.entries``) rather than a materialized list, so
+        this method classifies and dispatches each entry exactly once
+        as it arrives instead of iterating a list multiple times (once
+        for class files, once for non-class entries, once for rule
+        matching) — the latter would require every entry's bytes
+        resident in memory simultaneously, which is what the generator
+        conversion set out to avoid.
+
+        *display_path* is the human-readable location prefix (e.g.
+        ``outer.jar!/assets/payload.jar``) used so findings from nested
+        archives can be traced back to where they actually live.
+
+        Returns manifest metadata extracted from this archive level
+        (only meaningful at depth 0 — nested archives are mods bundled
+        by the outer mod, not the mod being scanned).
+        """
+        manifest_entries: dict[str, bytes] = {}
+        manifest_names = {
+            "fabric.mod.json", "mcmod.info", "META-INF/MANIFEST.MF",
+        }
+
+        # Collected for D14 (signature/manifest tamper detection),
+        # which needs the whole archive's entry-name set and .SF
+        # contents — gathered here during the single streaming pass
+        # rather than by iterating entries a second time.
+        class_entry_names: set[str] = set()
+        sf_contents: dict[str, str] = {}
+
+        match_states = [(rule_pack, rule_pack.new_match_state()) for rule_pack in self.rules]
+
+        for entry in entries:
+            if entry.name in manifest_names or entry.name.endswith("mods.toml"):
+                manifest_entries[entry.name] = entry.data
+
+            if entry.name.startswith("META-INF/") and entry.name.endswith(".SF"):
+                try:
+                    sf_contents[entry.name] = entry.data.decode("utf-8", errors="replace")
+                except Exception:
+                    pass
+
+            for rule_pack, state in match_states:
+                state.feed_entry(rule_pack.rules, entry)
+
+            if is_java_class(entry.data):
+                if entry.name.endswith(".class"):
+                    class_entry_names.add(entry.name)
+                self._analyze_class_entry(entry, display_path, index)
+                continue
+
+            nested_path = f"{display_path}!/{entry.name}"
+
+            if is_nested_archive(entry.data) and depth < self.max_nesting_depth:
+                try:
+                    nested_reader = ArchiveReader(entry.data, size_budget=size_budget)
+                    self._analyze_archive_entries(
+                        nested_reader.entries(), nested_path, index, size_budget, depth + 1
+                    )
+                except Exception:
+                    index.add(
+                        Evidence(
+                            detector_id="archive",
+                            severity=Severity.MEDIUM,
+                            class_name="",
+                            method_name="",
+                            offset=0,
+                            description=f"Nested archive cannot be read: {nested_path}",
+                            matched_value=nested_path,
+                        )
+                    )
+                continue
+
+            for detector in self.detectors:
+                archive_method = getattr(detector, "analyze_archive_entry", None)
+                if archive_method is None:
+                    continue
+                evs = archive_method(entry.name, entry.data)
+                for ev in evs:
+                    ev.context = {**ev.context, "archive_path": nested_path}
+                index.add_many(evs)
+
+        for rule_pack, state in match_states:
+            for match in rule_pack.evaluate(state):
+                index.add(
+                    Evidence(
+                        detector_id=f"rule:{rule_pack.pack_id}:{match.rule_id}",
+                        severity=match.severity,
+                        class_name=match.class_name or "",
+                        method_name="",
+                        offset=0,
+                        description=match.description,
+                        matched_value=match.matched_value,
+                        context={"rule_pack": rule_pack.pack_id, "rule_id": match.rule_id},
+                    )
+                )
+
+        metadata: dict[str, Any] = {}
+        if manifest_entries and depth == 0:
+            manifest = parse_archive_manifest(manifest_entries)
+            metadata["mod_id"] = manifest.mod_id
+            metadata["loader"] = manifest.loader
+            metadata["name"] = manifest.name
+            metadata["version"] = manifest.version
+
+        # Signature/manifest tamper checks only apply to the top-level
+        # archive: a signature block found inside a nested archive
+        # belongs to that inner mod's own signing, not to the outer
+        # artifact being scanned.
+        if depth == 0:
+            from mcrataway.detectors.d14_signature_tamper import D14SignatureTamper
+            d14 = D14SignatureTamper()
+            if sf_contents:
+                index.add_many(d14.analyze_signed_archive(class_entry_names, sf_contents))
+            manifest_mf = manifest_entries.get("META-INF/MANIFEST.MF")
+            if manifest_mf:
+                manifest_text = manifest_mf.decode("utf-8", errors="replace")
+                index.add_many(d14.analyze_manifest_class_path(manifest_text))
+
+        return metadata
+
+    def _analyze_class_entry(
+        self, entry: ArchiveEntry, display_path: str, index: EvidenceIndex
+    ) -> None:
+        """Parse and run all detectors + string reconstruction on one
+        Java class entry."""
+        parsed = parse_class(entry.data)
+        if not parsed:
+            return
+
+        entry_path = f"{display_path}!/{entry.name}"
+        for detector in self.detectors:
+            try:
+                evs = detector.analyze_class(parsed)
+            except Exception as exc:
+                index.add(
+                    Evidence(
+                        detector_id=detector.detector_id,
+                        severity=Severity.MEDIUM,
+                        class_name=parsed.this_class,
+                        method_name="",
+                        offset=0,
+                        description=(
+                            f"Detector {detector.detector_id} failed on "
+                            f"{entry_path}: {type(exc).__name__}: {exc}"
+                        ),
+                        matched_value="",
+                        context={"archive_path": entry_path, "detector_error": "1"},
+                    )
+                )
+                continue
+            for ev in evs:
+                ev.context = {**ev.context, "archive_path": entry_path}
+            index.add_many(evs)
+
+        reconstructed = reconstruct_strings(parsed)
+        reconstructed_by_detector = self._evaluate_reconstructed_strings(parsed, reconstructed)
+        index.add_many(reconstructed_by_detector)
+
+    def _evaluate_reconstructed_strings(
+        self, class_file: Any, reconstructed: list[Any]
+    ) -> list[Evidence]:
+        """Run capability detectors against de-obfuscated strings.
+
+        A hidden reference to a dangerous API (e.g. ``java.lang.Runtime``
+        split into a byte array) is a *stronger* signal than the same
+        string in plain text — a benign mod has no reason to hide it —
+        so this only ever adds evidence, it does not replace the plain
+        constant-pool scan.
+        """
+        if not reconstructed:
+            return []
+
+        values = [rs.value for rs in reconstructed if rs.value]
+        evidence: list[Evidence] = []
+        for detector in self.detectors:
+            handler = getattr(detector, "analyze_reconstructed_strings", None)
+            if handler is None:
+                continue
+            try:
+                evs = handler(class_file, values)
+            except Exception:
+                continue
+            for ev in evs:
+                ev.context = {**ev.context, "reconstructed": "1"}
+            evidence.extend(evs)
+
+        # Keep a low-severity trace of the reconstruction itself for
+        # forensic/report purposes (but do not let plain ldc strings —
+        # handled separately — flood the report; only techniques other
+        # than a bare ldc constant are traced here).
+        for rs in reconstructed:
+            if rs.technique == "ldc_string":
+                continue
+            evidence.append(
+                Evidence(
+                    detector_id="string_reconstruction",
+                    severity=Severity.INFO,
+                    class_name=rs.class_name,
+                    method_name=rs.method_name,
+                    offset=rs.offset,
+                    description=f"Reconstructed string: {rs.value[:80]}",
+                    matched_value=rs.value[:200],
+                    context={"technique": rs.technique},
+                )
+            )
+        return evidence
+
+    def _scan_script(self, path: Path, file_hash: str) -> ArtifactResult:
         """Scan a script file."""
         from mcrataway.parsers.scripts import analyze_script
 
@@ -343,7 +583,7 @@ class ScanEngine:
             findings=findings,
         )
 
-    def _scan_config(self, path: Path, file_hash: str, root: str) -> ArtifactResult:
+    def _scan_config(self, path: Path, file_hash: str) -> ArtifactResult:
         """Scan a config file for embedded scripts or malicious payloads."""
         try:
             data = path.read_text(errors="replace")

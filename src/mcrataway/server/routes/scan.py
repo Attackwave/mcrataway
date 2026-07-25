@@ -1,6 +1,7 @@
 """Scan routes — start, stream, and query scan jobs."""
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect
@@ -12,26 +13,72 @@ from mcrataway.server.jobs import JobRegistry
 router = APIRouter(prefix="/scan", tags=["scan"])
 
 
+def _allowed_roots(config: Any) -> set[Path]:
+    """The set of roots a scan is permitted to touch: auto-discovered
+    Minecraft installations plus the user's configured custom roots.
+
+    Any *other* path — however it reached this endpoint — is rejected.
+    This is a server-side allowlist, not a client-supplied one: the
+    ``roots`` query parameter is treated as "which of the roots the
+    user has already enabled to include this time", not as "scan
+    whatever path is named here". Without this, a request that reaches
+    this endpoint (e.g. via a same-origin bug, a compromised browser
+    extension, or a future auth regression) could direct the scanner
+    — and, if quarantine is enabled, file removal — at an arbitrary
+    path on the filesystem.
+    """
+    allowed: set[Path] = set()
+    for p in discover_roots(config.custom_roots):
+        try:
+            allowed.add(Path(p).resolve())
+        except Exception:
+            continue
+    for c in config.custom_roots:
+        try:
+            resolved = Path(c).expanduser().resolve()
+            if resolved.exists():
+                allowed.add(resolved)
+        except Exception:
+            continue
+    return allowed
+
+
 @router.post("/")
 async def start_scan(
     request: Request,
     roots: list[str] | None = Query(default=None),  # noqa: B008
     auto_discover: bool = Query(default=False),  # noqa: B008
 ) -> dict[str, Any]:
-    """Start a new scan job."""
+    """Start a new scan job.
+
+    *roots*, when provided, selects a subset of the currently
+    discovered/configured roots to scan this run — it is validated
+    against :func:`_allowed_roots`, not used as-is, so a caller cannot
+    direct the scan at an arbitrary path outside that allowlist.
+    """
     from mcrataway.server.worker import _run_scan
 
     registry: JobRegistry = request.app.state.job_registry
     config = request.app.state.config
 
+    allowed = _allowed_roots(config)
+
     if auto_discover:
-        discovered = discover_roots(config.custom_roots)
-        actual_roots = [str(p) for p in discovered]
+        actual_roots = [str(p) for p in allowed]
+    elif roots:
+        # Only accept caller-supplied roots that resolve to something
+        # already in the allowlist (discovered or configured custom
+        # root) — do not trust arbitrary paths from the request.
+        actual_roots = []
+        for r in roots:
+            try:
+                resolved = Path(r).resolve()
+            except Exception:
+                continue
+            if resolved in allowed:
+                actual_roots.append(str(resolved))
     else:
-        # Only use explicitly supplied roots; do NOT fall back to
-        # discover_roots when the caller did not request auto-discovery,
-        # otherwise scanning the user's entire system would happen silently.
-        actual_roots = list(roots) if roots else []
+        actual_roots = []
 
     job_id = registry.create_job(actual_roots)
 
@@ -115,8 +162,21 @@ async def stream_job(websocket: WebSocket) -> None:
     Browsers cannot set custom headers on WebSocket handshakes, so we
     also accept the token as a ``?token=`` query parameter when the
     token file is configured.
+
+    WebSocket handshakes are not routed through the HTTP middleware
+    stack (``app.middleware("http")`` only wraps regular requests), so
+    the Origin/DNS-rebinding check has to be duplicated here rather
+    than relying on ``token_guard``.
     """
     from mcrataway.constants import TOKEN_FILE
+    from mcrataway.server.auth import verify_origin_headers
+
+    if not verify_origin_headers(
+        websocket.headers.get("origin", ""), websocket.headers.get("host", "")
+    ):
+        await websocket.close(code=4403)
+        return
+
     if TOKEN_FILE.exists():
         token = websocket.query_params.get("token", "")
         try:

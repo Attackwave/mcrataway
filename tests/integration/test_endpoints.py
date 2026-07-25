@@ -8,10 +8,18 @@ from mcrataway.server.app import create_app
 
 @pytest.fixture
 async def client():
-    """Create an async test client."""
+    """Create an async test client, pre-authenticated with the
+    auto-generated token (create_app() now provisions one on first run
+    — see server.auth.ensure_token)."""
     app = create_app()
+    from mcrataway.constants import TOKEN_FILE
+    token = TOKEN_FILE.read_text().strip()
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"x-mcrataway-token": token},
+    ) as c:
         yield c
 
 
@@ -55,6 +63,38 @@ async def test_rules(client: AsyncClient):
     data = resp.json()
     assert isinstance(data, list)
     assert len(data) >= 2  # At least 2 built-in packs
+
+
+@pytest.mark.asyncio
+async def test_scan_rejects_arbitrary_root(client: AsyncClient):
+    """A root not in the discovered/custom-root allowlist must be
+    silently dropped, not scanned — see
+    server/routes/scan.py:_allowed_roots. Otherwise any caller that
+    reaches this endpoint could direct the scanner (and, with
+    quarantine enabled, file removal) at an arbitrary filesystem path.
+    """
+    resp = await client.post("/scan/", params={"roots": "/etc"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["roots"] == []
+
+
+@pytest.mark.asyncio
+async def test_scan_allows_configured_custom_root(client: AsyncClient, tmp_path):
+    """A root the user has explicitly added via config.custom_roots
+    must still be scannable."""
+    custom_root = tmp_path / "my_mods"
+    custom_root.mkdir()
+
+    config_resp = await client.post(
+        "/system/config", json={"custom_roots": [str(custom_root)]}
+    )
+    assert config_resp.status_code == 200
+
+    resp = await client.post("/scan/", params={"roots": str(custom_root)})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["roots"] == [str(custom_root)]
 
 
 @pytest.mark.asyncio

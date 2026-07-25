@@ -129,3 +129,66 @@ def test_d12_archive_entry_mcmeta_with_eval():
     data = json.dumps({"pack": {"pack_format": 1, "description": "eval(malicious)"}}).encode()
     evs = det.analyze_archive_entry("pack.json", data)
     assert len(evs) > 0
+
+
+def test_d13_mixin_targeting_session_flagged():
+    """A mixin config whose declared mixin class name suggests it
+    targets Session/MinecraftClient must be flagged — this is the
+    largest blind spot the other detectors have, since a Mixin can
+    rewrite the method that already holds a session token without
+    ever calling any of the APIs D01-D11 look for."""
+    from mcrataway.detectors.d13_mixin_coremod import D13MixinCoremod
+    import json
+
+    det = D13MixinCoremod()
+    config = json.dumps({
+        "package": "com.evil.mixins",
+        "mixins": ["MixinMinecraftClient", "MixinSession"],
+    }).encode()
+    evs = det.analyze_archive_entry("evil.mixins.json", config)
+    assert len(evs) == 2
+    assert all(e.severity.name == "MEDIUM" for e in evs)
+    assert any("MinecraftClient" in e.description for e in evs)
+    assert any("Session" in e.description for e in evs)
+
+
+def test_d13_mixin_targeting_benign_class_not_flagged():
+    from mcrataway.detectors.d13_mixin_coremod import D13MixinCoremod
+    import json
+
+    det = D13MixinCoremod()
+    config = json.dumps({
+        "package": "com.example.mixins",
+        "mixins": ["MixinBlockRenderer", "MixinParticleEffect"],
+    }).encode()
+    evs = det.analyze_archive_entry("example.mixins.json", config)
+    assert len(evs) == 0
+
+
+def test_d13_malformed_mixin_json_does_not_crash():
+    from mcrataway.detectors.d13_mixin_coremod import D13MixinCoremod
+
+    det = D13MixinCoremod()
+    assert det.analyze_archive_entry("broken.mixins.json", b"{not valid json") == []
+
+
+def test_d13_coremod_manifest_declaration_flagged():
+    """FMLCorePlugin in the manifest registers a ClassLoader transformer
+    with bytecode-rewrite access before any other mod code runs — none
+    of the bytecode-level detectors analyze this capability."""
+    from mcrataway.detectors.d13_mixin_coremod import D13MixinCoremod
+
+    det = D13MixinCoremod()
+    manifest = b"Manifest-Version: 1.0\nFMLCorePlugin: com.evil.CorePlugin\n"
+    evs = det.analyze_archive_entry("META-INF/MANIFEST.MF", manifest)
+    assert len(evs) == 1
+    assert evs[0].severity.name == "MEDIUM"
+
+
+def test_d13_ordinary_manifest_not_flagged():
+    from mcrataway.detectors.d13_mixin_coremod import D13MixinCoremod
+
+    det = D13MixinCoremod()
+    manifest = b"Manifest-Version: 1.0\nMain-Class: com.example.Mod\n"
+    evs = det.analyze_archive_entry("META-INF/MANIFEST.MF", manifest)
+    assert len(evs) == 0
