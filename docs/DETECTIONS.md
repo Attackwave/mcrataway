@@ -124,6 +124,48 @@ Each detector analyzes parsed class files and writes evidence to a shared `Evide
 | Embedded script in pack.mcmeta | HIGH | JavaScript in resource pack metadata |
 | Excessive .mcfunction calls | MEDIUM | Potential DoS via recursive function chains |
 
+### D13 — Mixin/Coremod Abuse
+
+Fabric/Forge Mixins let a mod rewrite bytecode in the game itself (or
+another mod) at load time. A malicious Mixin targeting the class that
+already holds a session token or handles network auth never needs to
+call any of the APIs D01-D11 look for — it just edits the method that
+already has what it wants. This is a blind spot none of the other
+bytecode-level detectors cover, since the "target" a Mixin edits is
+declared in JSON config, not derivable from the Mixin class's own
+bytecode alone.
+
+| Signal | Severity | Description |
+|--------|----------|-------------|
+| Mixin config (`*.mixins.json`) declaring a mixin class named after a sensitive target (Session, MinecraftClient, YggdrasilAuthenticationService, ClientConnection, packet encode/decode) | MEDIUM | Naming-convention signal — not a guarantee, but the same first-pass signal a human reviewer would use |
+| `@Redirect`/`@Overwrite` annotation string + sensitive target name in the same class's constant pool | HIGH | These annotations fully substitute or reroute behavior at the injection point (unlike `@Inject`, which runs alongside the original method) |
+| `FMLCorePlugin` / `FMLCorePluginContainsFMLMod` in `META-INF/MANIFEST.MF` | MEDIUM | Forge's pre-Mixin coremod mechanism — registers a ClassLoader transformer with full bytecode-rewrite access before any other mod code runs |
+
+Operates on archive entries (mixin JSON configs, the manifest) rather
+than parsed classes, since the mixin target is declared in JSON.
+
+### D14 — Signature/Manifest Tamper
+
+Detects a JAR that was legitimately signed and then had a payload
+added afterward ("trojanizing" a real mod), plus manifest entries that
+load code from outside the mod itself. This scanner does not verify
+cryptographic signatures (that requires the signer's certificate
+chain); instead it checks the cheaper, still-strong signal of whether
+every `.class` entry in the archive is actually *listed* in the
+signature block — an entry added after signing simply is not.
+
+| Signal | Severity | Description |
+|--------|----------|-------------|
+| `.class` entry present in the archive but absent from its `META-INF/*.SF` file | HIGH | Added after the JAR was signed — a real JVM would reject this JAR outright during signature verification |
+| `Class-Path` entry in `META-INF/MANIFEST.MF` | MEDIUM | Loads additional JARs from outside normal mod dependency resolution — legitimate mods essentially never need this |
+
+Only applies to the top-level archive (a signature block found in a
+nested archive belongs to that inner mod's own signing, not the outer
+artifact being scanned) and only checks `.class` entries against the
+signature block, not other resource files, to avoid noise from build
+tooling that can legitimately vary non-code entries between build and
+sign steps.
+
 ## Signature Rules
 
 YAML-defined rules with multi-string correlation. High-severity rules require multiple corroborating strings — no single-string high-severity rules.

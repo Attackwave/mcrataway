@@ -5,6 +5,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
+from mcrataway.reporting.enrichment import context_for
 from mcrataway.reporting.model import ScanReport
 
 
@@ -34,7 +35,10 @@ class ConsoleWriter:
         summary.add_row("Clean", f"[green]{report.clean_count}[/green]")
         self.console.print(summary)
 
-        # Findings table
+        # Findings table — sorted most-significant-first (see
+        # reporting.enrichment.finding_sort_key) rather than in
+        # archive-encounter order, so the finding that would actually
+        # change a user's decision appears first.
         if report.malicious_count > 0 or report.suspicious_count > 0:
             self.console.print()
             findings_table = Table(title="Findings")
@@ -42,25 +46,26 @@ class ConsoleWriter:
             findings_table.add_column("Verdict")
             findings_table.add_column("Severity")
             findings_table.add_column("Detector")
-            findings_table.add_column("Description")
+            findings_table.add_column("What this means")
 
             for file_report in report.files:
                 if file_report.verdict.value == "CLEAN":
                     continue
                 verdict_color = "red" if file_report.verdict.value == "MALICIOUS" else "yellow"
-                for finding in file_report.findings:
+                for finding in file_report.sorted_findings():
                     severity_color = {
                         "CRITICAL": "bold red",
                         "HIGH": "red",
                         "MEDIUM": "yellow",
                         "LOW": "cyan",
                     }.get(finding.severity.name, "white")
+                    ctx = context_for(finding.detector_id)
                     findings_table.add_row(
                         Path(file_report.file_path).name,
                         f"[{verdict_color}]{file_report.verdict.value}[/{verdict_color}]",
                         f"[{severity_color}]{finding.severity.name}[/{severity_color}]",
                         finding.detector_id,
-                        finding.description[:60],
+                        ctx.plain_language,
                     )
 
             self.console.print(findings_table)

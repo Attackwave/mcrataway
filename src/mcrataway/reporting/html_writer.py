@@ -3,6 +3,7 @@
 import html
 from pathlib import Path
 
+from mcrataway.reporting.enrichment import context_for
 from mcrataway.reporting.model import ScanReport
 
 
@@ -78,14 +79,20 @@ class HtmlWriter:
 <h2>Findings</h2>
 <table>
   <thead>
-    <tr><th>File</th><th>Verdict</th><th>Severity</th><th>Detector</th><th>Description</th></tr>
+    <tr><th>File</th><th>Verdict</th><th>Severity</th><th>Detector</th><th>What this means</th><th>Recommended action</th><th>Technical detail</th></tr>
   </thead>
   <tbody>
 """)
+        # Findings are shown most-significant-first (see
+        # reporting.enrichment.finding_sort_key), not in
+        # archive-encounter order, so the finding that would actually
+        # change a user's decision appears at the top.
         for file_report in report.files:
             if file_report.verdict.value == "CLEAN" or not file_report.findings:
                 continue
-            for finding in file_report.findings:
+            for finding in file_report.sorted_findings():
+                ctx = context_for(finding.detector_id)
+                mitre = f"{ctx.mitre_id} — {ctx.mitre_name}" if ctx.mitre_id else "—"
                 html_parts.append(
                     f"    <tr>\n"
                     f"      <td>{e(file_report.file_path)}</td>\n"
@@ -93,7 +100,9 @@ class HtmlWriter:
                     f"{e(file_report.verdict.value)}</td>\n"
                     f"      <td class=\"severity-{e(finding.severity.name)}\">"
                     f"{e(finding.severity.name)}</td>\n"
-                    f"      <td>{e(finding.detector_id)}</td>\n"
+                    f"      <td>{e(finding.detector_id)} <small>({e(mitre)})</small></td>\n"
+                    f"      <td>{e(ctx.plain_language)}</td>\n"
+                    f"      <td>{e(ctx.recommended_action)}</td>\n"
                     f"      <td>{e(finding.description)}</td>\n"
                     f"    </tr>\n"
                 )
