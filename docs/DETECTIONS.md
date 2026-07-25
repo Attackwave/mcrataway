@@ -89,10 +89,22 @@ Each detector analyzes parsed class files and writes evidence to a shared `Evide
 
 | Signal | Severity | Description |
 |--------|----------|-------------|
-| High Shannon entropy (>4.5) | LOW | Encoded/encrypted strings |
+| High Shannon entropy (>5.8) | LOW | Encoded/encrypted strings |
 | Single-letter package parts | MEDIUM | Heavily obfuscated class names |
-| Excessive synthetic methods | MEDIUM | Synthetic flag abuse |
-| Synthetic fields | LOW | Hidden field markers |
+| Control-flow flattening dispatcher | MEDIUM | See below |
+
+**Control-flow flattening**: detects the dispatcher shape produced by
+control-flow-flattening obfuscators (Allatori/ProGuard-style) — a
+central `tableswitch`/`lookupswitch` on a state variable, inside a
+loop, where most cases end with a `goto` back to the dispatcher rather
+than falling out of the switch. A switch is only flagged when it has
+at least 4 targets AND a goto-to-target ratio of at least 0.5, AND
+there is no loop-bound comparison (`arraylength`/`if_icmp*` etc.)
+immediately preceding the switch's selector — that last check is what
+distinguishes a flattened state machine from the much more common
+"ordinary loop containing a switch statement" shape, which produces
+the same switch+multiple-goto pattern (every `break`/`continue` in a
+loop-body switch compiles to a `goto` too) but is not obfuscation.
 
 ### D10 — Reflection Indirect Access
 
@@ -103,6 +115,22 @@ Each detector analyzes parsed class files and writes evidence to a shared `Evide
 | `VarHandle` | MEDIUM | Unsafe field access |
 | `StackWalker` | MEDIUM | Stack frame inspection |
 | `sun/misc/Unsafe` | MEDIUM | Unsafe memory access |
+| Method reference resolving to a different class | LOW | See below |
+
+**Cross-class method references**: `ClassFile.bootstrap_methods` (the
+class-level `BootstrapMethods` attribute) is parsed, and
+`resolve_invokes()` follows `invokedynamic` call sites through it to
+their real target — the `LambdaMetafactory` bootstrap argument that
+actually names the lambda body / method reference. This closes a
+specific evasion: splitting a dangerous capability into a separate
+class and reaching it only via a method reference (e.g. `Runnable r =
+EvilRunner::detonate;`) previously left no trace in the calling
+class's resolved invokes at all, since `invokedynamic` came back with
+an empty owner/name. A resolved target in a *different* class than the
+one being analyzed is flagged at LOW — ordinary functional-interface
+usage does this constantly, so it is not inherently suspicious on its
+own, but it is exactly the shape used to defeat single-class analysis
+and is worth escalating when combined with other findings.
 
 ### D11 — On-Chain C2
 
