@@ -42,7 +42,7 @@ async def test_rule(req: RuleTestRequest) -> dict[str, Any]:
     """Test a rule pack against a sample file."""
     from pathlib import Path
 
-    from mcrataway.parsers.archive import ArchiveReader, find_class_entries
+    from mcrataway.parsers.archive import ArchiveReader
     from mcrataway.rules.loader import RulePackLoader
 
     path = Path(req.file_path)
@@ -54,14 +54,17 @@ async def test_rule(req: RuleTestRequest) -> dict[str, Any]:
 
     if path.suffix.lower() in (".jar", ".zip"):
         reader = ArchiveReader(path)
-        entries = reader.entries()
-        class_entries = find_class_entries(entries)
+        # Materialize once: this endpoint tests a single sample file
+        # against every rule pack, so the entries are iterated once
+        # per pack. The scan engine's hot path (scan_engine.py) instead
+        # streams entries through a single shared pass to avoid this.
+        entries = list(reader.entries())
 
         matches: list[dict[str, Any]] = []
         for pack in loader.packs:
             if req.rule_id and req.rule_id not in {r.rule_id for r in pack.rules}:
                 continue
-            for match in pack.matches_archive(entries, class_entries):
+            for match in pack.matches_archive(entries, []):
                 matches.append({
                     "rule_id": match.rule_id,
                     "severity": match.severity.name,

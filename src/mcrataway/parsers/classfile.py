@@ -32,6 +32,26 @@ class MethodInfo:
 
 
 @dataclass
+class BootstrapMethod:
+    """One entry of the class-level BootstrapMethods attribute.
+
+    Every ``invokedynamic`` instruction (used by lambdas, method
+    references, and string concatenation via ``invokedynamic`` on
+    modern javac) points at one of these via its constant-pool
+    CONSTANT_InvokeDynamic entry's ``bootstrap_method_attr_index``.
+    ``method_ref_index`` is a CONSTANT_MethodHandle entry — resolve it
+    with ``ConstantPool.resolve_method_handle`` to find the actual
+    method the dynamic call site is built from (e.g.
+    LambdaMetafactory.metafactory, whose *arguments* — not the
+    bootstrap method itself — include the MethodHandle pointing at the
+    real lambda body).
+    """
+
+    method_ref_index: int
+    argument_indices: list[int] = field(default_factory=list)
+
+
+@dataclass
 class ClassFile:
     minor_version: int
     major_version: int
@@ -44,6 +64,7 @@ class ClassFile:
     methods: list[MethodInfo]
     attributes: dict[str, bytes] = field(default_factory=dict)
     is_synthetic: bool = False
+    bootstrap_methods: list[BootstrapMethod] = field(default_factory=list)
 
 
 def parse_class(data: bytes) -> ClassFile | None:
@@ -169,6 +190,9 @@ def parse_class(data: bytes) -> ClassFile | None:
                 )
             )
 
+        bootstrap_methods = _parse_class_attributes_for_bootstrap_methods(
+            data, pos, constant_pool
+        )
         consumed = _skip_attributes(data, pos)
         pos += consumed
 
@@ -179,6 +203,7 @@ def parse_class(data: bytes) -> ClassFile | None:
             access_flags=access_flags,
             this_class=constant_pool.get_class_name(this_class_idx),
             super_class=constant_pool.get_class_name(super_class_idx),
+            bootstrap_methods=bootstrap_methods,
             interfaces=interfaces,
             fields=fields,
             methods=methods,
@@ -224,3 +249,69 @@ def _skip_attributes(data: bytes, pos: int) -> int:
         return total
     except (struct.error, IndexError):
         return 0
+
+
+def _parse_class_attributes_for_bootstrap_methods(
+    data: bytes, pos: int, cp: ConstantPool
+) -> list["BootstrapMethod"]:
+    """Scan the class-level attribute table for BootstrapMethods and
+    parse it, without disturbing the position tracking that
+    ``_skip_attributes`` (called separately, right after this) relies
+    on to finish parsing the class file.
+
+    Every attribute here was previously skipped unconditionally, which
+    meant no ``invokedynamic`` call site (used by lambdas, method
+    references, and — since Java 9 — even plain string concatenation
+    via javac's ``invokedynamic``-based StringConcatFactory) could
+    ever be resolved to the real method it targets. A lambda body
+    hiding e.g. Runtime.exec behind a ``Supplier<Void>`` was invisible
+    to every detector that inspects resolved invoke targets.
+    """
+    try:
+        count = struct.unpack(">H", data[pos : pos + 2])[0]
+        cursor = pos + 2
+        for _ in range(count):
+            name_idx = _safe_unpack(">H", data, cursor)
+            length = _safe_unpack(">I", data, cursor + 2)
+            attr_name = cp.get_utf8(name_idx)
+            body_start = cursor + 6
+
+            if attr_name == "BootstrapMethods":
+                return _parse_bootstrap_methods_body(data, body_start)
+
+            cursor = body_start + length
+        return []
+    except (struct.error, IndexError):
+        return []
+
+
+def _parse_bootstrap_methods_body(data: bytes, pos: int) -> list["BootstrapMethod"]:
+    """Parse the body of a BootstrapMethods attribute (after the
+    6-byte attribute name_index+length header).
+
+    Format (JVM spec 4.7.23):
+        u2 num_bootstrap_methods;
+        { u2 bootstrap_method_ref;
+          u2 num_bootstrap_arguments;
+          u2 bootstrap_arguments[num_bootstrap_arguments];
+        } bootstrap_methods[num_bootstrap_methods];
+    """
+    methods: list[BootstrapMethod] = []
+    try:
+        num_methods = _safe_unpack(">H", data, pos)
+        cursor = pos + 2
+        for _ in range(num_methods):
+            method_ref_index = _safe_unpack(">H", data, cursor)
+            cursor += 2
+            num_args = _safe_unpack(">H", data, cursor)
+            cursor += 2
+            args: list[int] = []
+            for _ in range(num_args):
+                args.append(_safe_unpack(">H", data, cursor))
+                cursor += 2
+            methods.append(
+                BootstrapMethod(method_ref_index=method_ref_index, argument_indices=args)
+            )
+        return methods
+    except (struct.error, IndexError):
+        return methods

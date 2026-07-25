@@ -41,7 +41,7 @@ class D02NetworkIO(Detector):
             if not method.bytecode:
                 continue
 
-            invokes = resolve_invokes(method.bytecode, cp)
+            invokes = resolve_invokes(method.bytecode, cp, class_file.bootstrap_methods)
             for inv in invokes:
                 if inv.owner in network_classes:
                     evidence.append(
@@ -55,33 +55,51 @@ class D02NetworkIO(Detector):
                         )
                     )
 
-        # Check for URLs in constant pool strings
+        evidence.extend(self._scan_strings(class_file, cp.all_strings(), obfuscated=False))
+        return evidence
+
+    def analyze_reconstructed_strings(
+        self, class_file: ClassFile, strings: list[str]
+    ) -> list[Evidence]:
+        """Flag de-obfuscated URLs/webhook endpoints — hiding the C2
+        destination is itself evidence of intent to exfiltrate, so
+        matches here are rated higher than the plain constant-pool scan.
+        """
+        return self._scan_strings(class_file, strings, obfuscated=True)
+
+    def _scan_strings(
+        self, class_file: ClassFile, strings: list[str], obfuscated: bool
+    ) -> list[Evidence]:
+        evidence: list[Evidence] = []
         url_pattern = re.compile(r'https?://[^\s"\'\(\)]+')
-        for s in cp.all_strings():
+        url_severity = Severity.MEDIUM if obfuscated else Severity.LOW
+        webhook_severity = Severity.CRITICAL if obfuscated else Severity.HIGH
+
+        for s in strings:
             for match in url_pattern.finditer(s):
                 url = match.group(0)
                 if not self._is_legitimate_url(url):
+                    prefix = "Obfuscated " if obfuscated else ""
                     evidence.append(
                         self._add_evidence(
                             class_file,
                             "",
                             0,
-                            f"Suspicious URL in constant pool: {url[:100]}",
-                            Severity.LOW,
+                            f"{prefix}Suspicious URL in constant pool: {url[:100]}",
+                            url_severity,
                             matched_value=url,
                         )
                     )
 
-        # Discord webhook detection
-        for s in cp.all_strings():
             if "discord.com/api/webhooks/" in s or "discordapp.com/api/webhooks/" in s:
+                prefix = "Obfuscated " if obfuscated else ""
                 evidence.append(
                     self._add_evidence(
                         class_file,
                         "",
                         0,
-                        "Discord webhook URL detected",
-                        Severity.HIGH,
+                        f"{prefix}Discord webhook URL detected",
+                        webhook_severity,
                         matched_value=s[:200],
                     )
                 )

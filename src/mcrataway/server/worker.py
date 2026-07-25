@@ -47,6 +47,7 @@ def _run_scan(
         max_workers=config.max_workers,
         whitelisted_hashes=config.whitelisted_hashes,
         excluded_paths=config.excluded_paths,
+        max_nesting_depth=config.max_recursion_depth,
     )
 
     walker = FileWalker(
@@ -80,7 +81,7 @@ def _run_scan(
     for i, file_path in enumerate(all_files):
         entry: dict[str, Any]
         try:
-            result = engine._scan_single(file_path, "")
+            result = engine._scan_single(file_path)
             engine.maybe_quarantine(file_path, result)
             entry = {
                 "file_path": result.file_path,

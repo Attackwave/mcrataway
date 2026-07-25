@@ -1,6 +1,7 @@
 """CLI entry point commands."""
 
 import json
+import threading
 import webbrowser
 from pathlib import Path
 
@@ -119,6 +120,12 @@ def scan(
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 
     results = []
+    # rich.progress.Progress is not safe to update concurrently from
+    # multiple threads — engine.scan_files() runs on_progress from
+    # worker threads when max_workers > 1, so this callback (unlike the
+    # web server's, which only touches asyncio-safe primitives via
+    # loop.call_soon_threadsafe) must serialize its own writes.
+    progress_lock = threading.Lock()
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -128,7 +135,7 @@ def scan(
     ) as progress:
         for root in roots:
             task = progress.add_task(f"[cyan]Discovering files in {root.name}...", total=None)
-            
+
             files = walker.walk(root)
             if not files:
                 progress.stop_task(task)
@@ -136,11 +143,12 @@ def scan(
                 continue
 
             progress.update(task, description=f"[green]Scanning {root.name}...", total=len(files))
-            
+
             def update_progress(f: Path) -> None:
-                progress.update(task, advance=1, description=f"[green]Scanning: [dim]{f.name}[/dim]")
-                
-            results.extend(engine.scan_files(files, root=str(root), on_progress=update_progress))
+                with progress_lock:
+                    progress.update(task, advance=1, description=f"[green]Scanning: [dim]{f.name}[/dim]")
+
+            results.extend(engine.scan_files(files, on_progress=update_progress))
             progress.update(task, description=f"[green]Finished {root.name}")
 
     report = engine.build_report(roots, results)
@@ -168,12 +176,21 @@ def serve(host: str, port: int, hot_reload: bool, skip_browser: bool) -> None:
     """Start the web server."""
     import uvicorn
 
-    from mcrataway.server.app import create_app
+    from mcrataway.server.auth import ensure_token
+
+    ensure_config_dir()
+    token = ensure_token()
 
     url = f"http://{host}:{port}"
     rich.print(f"[bold green]mcrataway[/bold green] starting at {url}")
+    rich.print(
+        f"[dim]Auth token (send as X-Mcrataway-Token header, "
+        f"or ?token= for the WebSocket stream):[/dim] {token}"
+    )
     if not skip_browser:
         webbrowser.open(url)
+
+    from mcrataway.server.app import create_app
 
     if hot_reload:
         uvicorn.run(

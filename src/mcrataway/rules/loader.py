@@ -1,22 +1,57 @@
-"""Rule pack loader and matcher — YAML-defined signature rules."""
+"""Rule pack loader and matcher — YAML-defined signature rules.
+
+Rule matching is streaming/per-entry rather than "decode every entry
+to text, concatenate, and regex the result": the scan engine now
+iterates archive entries one at a time (see
+``parsers.archive.ArchiveReader.entries``, a generator) specifically
+to avoid holding every entry's bytes in memory simultaneously, and
+concatenating everything back into one string here would undo that.
+A :class:`RuleMatchState` accumulates per-rule match state across
+calls to :meth:`RulePack.feed_entry`, one entry at a time; patterns
+that would need to span an entry boundary are handled via a small
+sliding-window tail (see :class:`RuleMatchState`) rather than by
+requiring the whole archive in memory at once.
+"""
 
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import regex
 import yaml
 
 from mcrataway.constants import Severity
 from mcrataway.parsers.archive import ArchiveEntry, is_java_class
 
-# Maximum text length scanned by a single regex (1 MB)
+# Maximum text length scanned by a single regex per entry (1 MB) —
+# still bounds worst-case regex cost per entry even though entries are
+# now processed one at a time rather than as one giant blob.
 _MAX_REGEX_TEXT = 1024 * 1024
 
-# Regex patterns that can cause catastrophic backtracking (ReDoS)
+# Hard wall-clock budget for a single regex evaluation. The
+# ReDoS-pattern heuristic below (_REDO_PATTERNS) catches known-bad
+# *shapes* but, like any such heuristic, cannot catch every pattern
+# that exhibits catastrophic backtracking on some input — it is a
+# static approximation of a runtime property. This timeout is the
+# actual backstop: the `regex` module (unlike stdlib `re`) can abort a
+# match in progress after this many seconds, so even a pattern that
+# slips past the heuristic cannot hang a scan indefinitely.
+_REGEX_TIMEOUT_SECONDS = 1.0
+
+# Regex patterns that can cause catastrophic backtracking (ReDoS).
+# A first line of defense (skip obviously bad patterns before ever
+# running them) — the per-match timeout above is the backstop for
+# patterns this heuristic does not catch.
 _REDO_PATTERNS = re.compile(
     r"(\(([^()]*\+[^()]*)+\)|\(([^()]*\*)[^()]*\)\+|(\.\+)\+|(\.\*)\+)"
 )
+
+# Sliding-window tail length carried between entries so a literal or
+# short regex pattern that happens to straddle an entry boundary (rare
+# in practice, since entries are independent files, but cheap to
+# cover) is not missed. Bounded well below _MAX_REGEX_TEXT.
+_TAIL_WINDOW = 256
 
 
 @dataclass
@@ -43,6 +78,156 @@ class RuleDefinition:
     condition: str = ""
 
 
+class StringPattern:
+    """A single string pattern to match, evaluated against one chunk of text.
+
+    Regex patterns are compiled once at construction time rather than
+    on every :meth:`matches` call — with per-entry streaming matching,
+    a rule pattern is now evaluated once per archive entry rather than
+    once for the whole archive, so recompiling the same pattern
+    hundreds of times per scan was measurable overhead.
+    """
+
+    def __init__(self, kind: str, value: str) -> None:
+        self.kind = kind
+        self.value = value
+        self._compiled: "regex.Pattern[str] | None" = None
+        self._hex_bytes: bytes | None = None
+        self._redos_blocked = False
+
+        if kind == "regex":
+            if _REDO_PATTERNS.search(value):
+                self._redos_blocked = True
+            else:
+                try:
+                    self._compiled = regex.compile(value, regex.IGNORECASE)
+                except regex.error:
+                    self._compiled = None
+        elif kind == "hex":
+            try:
+                self._hex_bytes = bytes.fromhex(value.replace(" ", ""))
+            except ValueError:
+                self._hex_bytes = None
+
+    def matches(self, text: str, raw_data: bytes = b"") -> list[str]:
+        """Check if the pattern matches the given text chunk. Returns matched values.
+
+        *raw_data*, if given, is used for ``hex`` patterns instead of
+        re-encoding *text* — matching against the actual original
+        bytes rather than a decode-then-reencode round trip, which can
+        silently corrupt byte sequences that are not valid UTF-8 (the
+        exact case a hex pattern, e.g. an Ethereum function selector,
+        is often looking for).
+        """
+        if self.kind == "literal":
+            if self.value in text:
+                return [self.value]
+        elif self.kind == "regex":
+            if self._redos_blocked or self._compiled is None:
+                return []
+            try:
+                # `regex` (not stdlib `re`) supports timeout=, which
+                # aborts a runaway match rather than hanging the scan —
+                # the backstop for ReDoS patterns _REDO_PATTERNS misses.
+                found: list[str] = self._compiled.findall(
+                    text[:_MAX_REGEX_TEXT], timeout=_REGEX_TIMEOUT_SECONDS
+                )
+                return found
+            except TimeoutError:
+                return []
+        elif self.kind == "hex":
+            if self._hex_bytes is None:
+                return []
+            haystack = raw_data if raw_data else text.encode("utf-8", errors="replace")
+            if self._hex_bytes in haystack:
+                return [self.value]
+        return []
+
+
+class RuleMatchState:
+    """Accumulates match state for one :class:`RulePack` across a stream
+    of archive entries, without holding all entry text in memory.
+
+    A ``_tail`` of the last :data:`_TAIL_WINDOW` characters of decoded
+    text is kept per rule pack (not per entry) so literal/regex
+    patterns that straddle an entry boundary still match; this is a
+    deliberate, bounded trade-off against requiring the whole archive
+    concatenated in memory.
+    """
+
+    def __init__(self) -> None:
+        # rule_id -> {pattern_idx -> matched values (deduped, capped)}
+        self._matches: dict[str, dict[int, list[str]]] = {}
+        self._class_names: list[str] = []
+        self._tail = ""
+        # rule_id -> compiled StringPattern list, built once on first
+        # use rather than reconstructed (and every regex recompiled)
+        # for every single archive entry.
+        self._compiled_patterns: dict[str, list[StringPattern]] = {}
+
+    def _patterns_for(self, rule: "RuleDefinition") -> list[StringPattern]:
+        compiled = self._compiled_patterns.get(rule.rule_id)
+        if compiled is None:
+            compiled = [
+                StringPattern(kind=s.get("kind", "literal"), value=s.get("value", ""))
+                for s in rule.strings
+            ]
+            self._compiled_patterns[rule.rule_id] = compiled
+        return compiled
+
+    def feed_entry(self, rules: list["RuleDefinition"], entry: ArchiveEntry) -> None:
+        """Feed one archive entry's content into the accumulated state.
+
+        Note: an earlier version of this method tried to skip
+        decode()+findall() for entries that "look binary" (few
+        printable bytes in a leading sample), to cut per-entry regex
+        overhead. That heuristic was dropped after testing against a
+        real compiled .class file: the constant pool's length-prefixed
+        binary structure dominates a leading byte sample even when the
+        class contains exactly the string literals (e.g.
+        "java.lang.Runtime", "getAccessToken") that rules are meant to
+        catch, so it silently produced false negatives on the most
+        important case — a malicious class file. Correctness comes
+        first; regex cost here is bounded by _MAX_REGEX_TEXT per entry
+        regardless.
+        """
+        if is_java_class(entry.data):
+            self._class_names.append(entry.name)
+
+        try:
+            text = entry.data.decode("utf-8", errors="replace")
+        except Exception:
+            return
+
+        # Prepend the tail from the previous entry so boundary-straddling
+        # patterns still match, then keep a new tail for next time.
+        chunk = self._tail + "\n" + text if self._tail else text
+        self._tail = text[-_TAIL_WINDOW:] if len(text) >= _TAIL_WINDOW else text
+
+        for rule in rules:
+            if not rule.strings:
+                continue
+            rule_matches = self._matches.setdefault(rule.rule_id, {})
+            patterns = self._patterns_for(rule)
+            for idx, pattern in enumerate(patterns):
+                if idx in rule_matches and len(rule_matches[idx]) >= 5:
+                    continue  # already capped for this rule/pattern
+                found = pattern.matches(chunk, raw_data=entry.data)
+                if found:
+                    existing = rule_matches.setdefault(idx, [])
+                    for f in found:
+                        if len(existing) >= 5:
+                            break
+                        existing.append(f)
+
+    def result_for(self, rule: "RuleDefinition") -> dict[int, list[str]]:
+        return self._matches.get(rule.rule_id, {})
+
+    @property
+    def class_names(self) -> list[str]:
+        return self._class_names
+
+
 class RulePack:
     """A loaded set of rules from a YAML file."""
 
@@ -50,82 +235,46 @@ class RulePack:
         self.pack_id = pack_id
         self.rules = rules
 
+    def new_match_state(self) -> RuleMatchState:
+        """Create a fresh streaming match state for one archive scan."""
+        return RuleMatchState()
+
+    def evaluate(self, state: RuleMatchState) -> list[RuleMatch]:
+        """Evaluate all rules against accumulated streaming match state."""
+        matches: list[RuleMatch] = []
+        for rule in self.rules:
+            match_result = self._check_rule(rule, state)
+            if match_result:
+                matches.append(match_result)
+        return matches
+
     def matches_archive(
         self,
         entries: list[ArchiveEntry],
         class_entries: list[ArchiveEntry],
     ) -> list[RuleMatch]:
-        """Check all rules against archive entries."""
-        matches: list[RuleMatch] = []
-
-        # Build string index from all entries
-        all_strings: list[str] = []
-        class_names: list[str] = []
-
+        """Convenience wrapper for callers that already have the full
+        entry list materialized (e.g. the rule-testing API endpoint).
+        The scan engine's hot path uses :meth:`new_match_state` +
+        :meth:`RuleMatchState.feed_entry` directly to avoid requiring
+        every entry to be resident in memory at once.
+        """
+        state = self.new_match_state()
         for entry in entries:
-            try:
-                if is_java_class(entry.data[:4]):
-                    class_names.append(entry.name)
-            except Exception:
-                pass
-
-            # Decode entry data as UTF-8 for string scanning
-            try:
-                text = entry.data.decode("utf-8", errors="replace")
-                all_strings.append(text)
-            except Exception:
-                pass
-
-        for rule in self.rules:
-            match_result = self._check_rule(rule, all_strings, class_names)
-            if match_result:
-                matches.append(match_result)
-
-        return matches
+            state.feed_entry(self.rules, entry)
+        return self.evaluate(state)
 
     def _check_rule(
         self,
         rule: RuleDefinition,
-        all_strings: list[str],
-        class_names: list[str],
+        state: RuleMatchState,
     ) -> RuleMatch | None:
-        """Check a single rule against the string index."""
+        """Check a single rule against accumulated match state."""
         if not rule.strings:
             return None
 
-        matches: dict[int, list[str]] = {}  # string_idx -> matched_values
-        combined_text = "\n".join(all_strings)
-        combined_classes = "\n".join(class_names)
-        full_text = combined_text + "\n" + combined_classes
+        matches = state.result_for(rule)
 
-        for idx, s_def in enumerate(rule.strings):
-            kind = s_def.get("kind", "literal")
-            value = s_def.get("value", "")
-
-            if kind == "literal":
-                if value in full_text:
-                    matches[idx] = [value]
-            elif kind == "regex":
-                try:
-                    # Block obvious ReDoS patterns
-                    if _REDO_PATTERNS.search(value):
-                        continue
-                    pattern = re.compile(value, re.IGNORECASE)
-                    # Limit input text length to prevent ReDoS
-                    found = pattern.findall(full_text[:_MAX_REGEX_TEXT])
-                    if found:
-                        matches[idx] = found[:5]
-                except re.error:
-                    pass
-            elif kind == "hex":
-                try:
-                    hex_bytes = bytes.fromhex(value.replace(" ", ""))
-                    if hex_bytes in full_text.encode("utf-8", errors="replace"):
-                        matches[idx] = [value]
-                except ValueError:
-                    pass
-
-        # Evaluate condition
         if self._evaluate_condition(rule.condition, matches, len(rule.strings)):
             matched_values = []
             for vals in matches.values():
