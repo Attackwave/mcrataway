@@ -2,6 +2,7 @@
 
 import pathlib
 import runpy
+import shutil
 
 import pytest
 from starlette.testclient import TestClient
@@ -25,12 +26,17 @@ def client():
 
 
 @pytest.fixture
-def fixtures_dir():
-    """Ensure synthetic jars exist and return the fixtures directory."""
+def fixtures_dir(tmp_path: pathlib.Path):
+    """Ensure synthetic jars exist, then copy the fixtures into a scratch
+    directory and return that instead of the real repo path — a live scan
+    quarantines matched jars in place, which would otherwise delete the
+    checked-in fixture files."""
     gen = FIXTURES_DIR / "generator.py"
-    if gen.exists():
+    if gen.exists() and not any(FIXTURES_DIR.glob("*.jar")):
         runpy.run_path(str(gen), run_name="__main__")
-    return str(FIXTURES_DIR)
+    scratch = tmp_path / "fixtures"
+    shutil.copytree(FIXTURES_DIR, scratch)
+    return str(scratch)
 
 
 def test_websocket_stream_nonexistent_job(client: TestClient):
