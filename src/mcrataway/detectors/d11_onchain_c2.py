@@ -118,7 +118,11 @@ class D11OnchainC2(Detector):
                             f"RSA/Signature operation: {inv.owner}.{inv.name}",
                             Severity.INFO,
                             matched_value=f"{inv.owner}.{inv.name}{inv.descriptor}",
-                            context={"crypto_call": "1"},
+                            context={
+                                "crypto_call": "1",
+                                "invoke_owner": inv.owner,
+                                "invoke_name": inv.name,
+                            },
                         )
                     )
 

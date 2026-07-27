@@ -37,6 +37,7 @@ class D01ProcessExec(Detector):
                             "Runtime.exec() call detected",
                             Severity.HIGH,
                             matched_value=f"{inv.owner}.{inv.name}{inv.descriptor}",
+                            context={"invoke_owner": inv.owner, "invoke_name": inv.name},
                         )
                     )
 
@@ -49,6 +50,7 @@ class D01ProcessExec(Detector):
                             "ProcessBuilder usage detected",
                             Severity.HIGH,
                             matched_value=f"{inv.owner}.{inv.name}{inv.descriptor}",
+                            context={"invoke_owner": inv.owner, "invoke_name": inv.name},
                         )
                     )
 

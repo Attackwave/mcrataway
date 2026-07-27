@@ -35,6 +35,7 @@ class D06Deserialization(Detector):
                             "Unsafe deserialization: ObjectInputStream.readObject()",
                             Severity.MEDIUM,
                             matched_value=f"{inv.owner}.{inv.name}{inv.descriptor}",
+                            context={"invoke_owner": inv.owner, "invoke_name": inv.name},
                         )
                     )
 

@@ -58,6 +58,7 @@ class D03DynamicLoading(Detector):
                             f"Dynamic class loading via {inv.owner}.{inv.name}",
                             Severity.HIGH if not is_stdlib else Severity.MEDIUM,
                             matched_value=f"{inv.owner}.{inv.name}{inv.descriptor}",
+                            context={"invoke_owner": inv.owner, "invoke_name": inv.name},
                         )
                     )
 
@@ -70,6 +71,7 @@ class D03DynamicLoading(Detector):
                             f"Dynamic class resolution: {inv.owner}.{inv.name}",
                             Severity.MEDIUM if not is_stdlib else Severity.INFO,
                             matched_value=f"{inv.owner}.{inv.name}{inv.descriptor}",
+                            context={"invoke_owner": inv.owner, "invoke_name": inv.name},
                         )
                     )
 

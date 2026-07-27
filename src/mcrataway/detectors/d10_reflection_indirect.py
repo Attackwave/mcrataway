@@ -77,6 +77,7 @@ class D10ReflectionIndirect(Detector):
                             f"Indirect access: {inv.owner}.{inv.name}",
                             Severity.MEDIUM if not is_stdlib else Severity.INFO,
                             matched_value=f"{inv.owner}.{inv.name}{inv.descriptor}",
+                            context={"invoke_owner": inv.owner, "invoke_name": inv.name},
                         )
                     )
 
