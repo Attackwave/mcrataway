@@ -55,6 +55,7 @@ class D07NativeJni(Detector):
                             f"Native library loading: System.{inv.name}()",
                             Severity.HIGH,
                             matched_value=f"{inv.owner}.{inv.name}{inv.descriptor}",
+                            context={"invoke_owner": inv.owner, "invoke_name": inv.name},
                         )
                     )
 

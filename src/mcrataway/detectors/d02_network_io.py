@@ -52,6 +52,7 @@ class D02NetworkIO(Detector):
                             f"Network I/O: {inv.owner}.{inv.name}",
                             Severity.INFO,
                             matched_value=f"{inv.owner}.{inv.name}{inv.descriptor}",
+                            context={"invoke_owner": inv.owner, "invoke_name": inv.name},
                         )
                     )
 

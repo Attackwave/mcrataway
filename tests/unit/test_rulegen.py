@@ -230,3 +230,128 @@ def test_proposed_subdir_not_loaded_by_load_defaults(tmp_path: Path, monkeypatch
     loader.load_defaults()
     rule_ids = {r.rule_id for pack in loader.all_rules() for r in pack.rules}
     assert "should_not_load" not in rule_ids
+
+
+# --- regression tests against real javac-compiled fixtures ----------------
+#
+# The synthetic fixtures built by _build_class_raw() above only ever emit
+# `ldc_w` + `return` (see tests/build_javac_fixtures.py's module docstring)
+# and never a real `invoke*` instruction, so they cannot exercise
+# resolve_invokes()-derived evidence at all. The bugs below were only
+# caught by running rulegen against tests/javac_fixtures/, which contain
+# genuine javac-compiled bytecode.
+
+JAVAC_FIXTURES_DIR = Path(__file__).resolve().parent.parent / "javac_fixtures"
+
+
+def _javac_fixture(name: str) -> Path:
+    path = JAVAC_FIXTURES_DIR / f"{name}.jar"
+    if not path.exists():
+        import pytest
+        pytest.skip(f"{path} missing — javac fixtures not built")
+    return path
+
+
+def test_analyze_sample_never_quarantines(tmp_path: Path, monkeypatch):
+    """analyze_sample/analyze_samples must never move or delete the
+    caller's sample files as a side effect of analysis — rulegen is
+    explicitly given directories of known-malicious samples to analyze,
+    unlike a normal protective scan.
+
+    Regression test: the default ScanEngine() (quarantine enabled by
+    default) was originally used internally, which moved real
+    MALICIOUS-verdict fixture files into ~/.mcrataway/quarantine/ the
+    first time this was run manually against tests/javac_fixtures/.
+    """
+    import mcrataway.constants as constants_module
+    fake_home = tmp_path / "mcrataway_home"
+    monkeypatch.setattr(constants_module, "CONFIG_DIR", fake_home / ".mcrataway")
+    monkeypatch.setattr(constants_module, "QUARANTINE_DIR", fake_home / ".mcrataway" / "quarantine")
+
+    src = _javac_fixture("DirectExec")
+    sample_copy = tmp_path / "DirectExec.jar"
+    sample_copy.write_bytes(src.read_bytes())
+
+    analysis = analyze_sample(sample_copy)
+    assert analysis.artifact_result.verdict.name == "MALICIOUS"
+
+    assert sample_copy.exists(), "sample must not be moved/deleted by analysis"
+    assert not (fake_home / ".mcrataway" / "quarantine").exists(), (
+        "rulegen must never quarantine the samples it is analyzing"
+    )
+
+
+def test_generated_proposal_matches_its_own_source_sample():
+    """A rule generated from a sample's own evidence must actually
+    match that sample when loaded back through RulePackLoader/RulePack.
+
+    Regression test: candidates extracted from invoke-call evidence
+    used Evidence.matched_value, a synthesized "owner.name(desc)"
+    display string built for human-readable reports (see
+    detectors/d01_process_exec.py etc.) that never appears as a
+    contiguous substring in the class file — owner/name/descriptor are
+    separate constant pool entries — so the generated literal pattern
+    could never match anything.
+    """
+    from mcrataway.parsers.archive import ArchiveReader
+
+    jar_path = _javac_fixture("DirectExec")
+    analysis = analyze_sample(jar_path)
+    candidates = extract_candidates(analysis)
+    proposal = propose_rule(candidates, family="regression_test")
+
+    loader = RulePackLoader()
+    pack = None
+    import tempfile
+    from mcrataway.rules.yaml_writer import write_proposal
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td) / "proposed.yaml"
+        write_proposal(proposal, out)
+        loader.load_pack(out)
+        pack = loader.all_rules()[0]
+
+    reader = ArchiveReader(jar_path)
+    matches = pack.matches_archive(list(reader.entries()), [])
+    assert matches, "generated rule did not match its own source sample"
+
+
+def test_extract_candidates_excludes_generic_member_names():
+    """Standalone generic Java member names (<init>, start, exec, ...)
+    must not be proposed as literal patterns — they occur in nearly
+    every class file and would make a rule fire on unrelated, benign
+    JARs.
+
+    Regression test: an earlier version proposed '<init>' as a
+    standalone candidate, which then matched tests/javac_fixtures/
+    BenignLwjglMod.jar (a deliberately benign fixture) purely because
+    every class has a constructor.
+    """
+    analysis = analyze_sample(_javac_fixture("DirectExec"))
+    candidates = extract_candidates(analysis)
+    generic_values = {"<init>", "<clinit>", "start", "exec", "run"}
+    assert not (generic_values & {c.value for c in candidates})
+
+
+def test_generated_proposal_does_not_match_unrelated_benign_sample():
+    """End-to-end false-positive check: a rule generated from
+    process-execution malware samples must not fire against an
+    unrelated, deliberately benign fixture."""
+    from mcrataway.parsers.archive import ArchiveReader
+
+    analysis = analyze_sample(_javac_fixture("DirectExec"))
+    candidates = extract_candidates(analysis)
+    proposal = propose_rule(candidates, family="regression_test_fp")
+
+    loader = RulePackLoader()
+    import tempfile
+    from mcrataway.rules.yaml_writer import write_proposal
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td) / "proposed.yaml"
+        write_proposal(proposal, out)
+        loader.load_pack(out)
+        pack = loader.all_rules()[0]
+
+    benign_path = _javac_fixture("BenignLwjglMod")
+    reader = ArchiveReader(benign_path)
+    matches = pack.matches_archive(list(reader.entries()), [])
+    assert not matches, "generated rule false-positived on an unrelated benign sample"

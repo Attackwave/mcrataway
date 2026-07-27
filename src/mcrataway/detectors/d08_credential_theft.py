@@ -52,6 +52,7 @@ class D08CredentialTheft(Detector):
                             f"Minecraft session access: {inv.owner}.{inv.name}",
                             Severity.HIGH,
                             matched_value=f"{inv.owner}.{inv.name}{inv.descriptor}",
+                            context={"invoke_owner": inv.owner, "invoke_name": inv.name},
                         )
                     )
 

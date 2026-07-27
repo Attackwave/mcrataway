@@ -25,7 +25,7 @@ from mcrataway.discovery.walker import FileWalker
 from mcrataway.rulegen.correlate import generalize
 from mcrataway.rulegen.features import extract_candidates
 from mcrataway.rulegen.propose import RuleProposal, propose_rule
-from mcrataway.rulegen.sample import SampleAnalysis, analyze_samples
+from mcrataway.rulegen.sample import SampleAnalysis, _non_quarantining_engine, analyze_samples
 
 
 class RuleGenEngine:
@@ -36,7 +36,7 @@ class RuleGenEngine:
         scan_engine: ScanEngine | None = None,
         min_sample_fraction: float = 0.6,
     ) -> None:
-        self.scan_engine = scan_engine or ScanEngine()
+        self.scan_engine = scan_engine or _non_quarantining_engine()
         self.min_sample_fraction = min_sample_fraction
 
     def generate_from_directory(

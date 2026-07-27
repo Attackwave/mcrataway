@@ -24,6 +24,16 @@ _RULE_MATCH_PREFIX = "rule:"
 # pattern on their own (avoids proposing single-character noise).
 _MIN_VALUE_LENGTH = 4
 
+# Java method/member names so generic that nearly every class file
+# contains them — proposing these as standalone literal patterns would
+# make a rule fire on almost any JAR regardless of family. They are
+# only useful in combination with a distinguishing owner class, which
+# is proposed as a separate candidate.
+_GENERIC_MEMBER_NAMES = {
+    "<init>", "<clinit>", "start", "run", "get", "set", "exec",
+    "load", "close", "open", "read", "write", "call", "init",
+}
+
 
 @dataclass
 class CandidateFeature:
@@ -47,6 +57,13 @@ def extract_candidates(analysis: SampleAnalysis) -> list[CandidateFeature]:
         value = value.strip()
         if len(value) < _MIN_VALUE_LENGTH:
             return
+        if not value.isprintable():
+            # Failed/garbled decryption (e.g. a cipher reconstruction
+            # that didn't recover valid text) — not a usable literal
+            # pattern for a human-reviewable rule.
+            return
+        if value in _GENERIC_MEMBER_NAMES:
+            return
         existing = candidates.get(value)
         if existing is None:
             existing = CandidateFeature(kind="literal", value=value, source=source, technique=technique)
@@ -63,7 +80,22 @@ def extract_candidates(analysis: SampleAnalysis) -> list[CandidateFeature]:
         source: Literal["constant_pool", "reconstructed_string"] = (
             "reconstructed_string" if ev.detector_id == "string_reconstruction" else "constant_pool"
         )
-        _add(ev.matched_value, source, technique, ev.detector_id)
+
+        invoke_owner = ev.context.get("invoke_owner")
+        invoke_name = ev.context.get("invoke_name")
+        if invoke_owner or invoke_name:
+            # ev.matched_value here is a synthesized "owner.name(desc)"
+            # display string built for human-readable reports — it
+            # never appears as a contiguous substring in the class
+            # file, since owner/name/descriptor are separate constant
+            # pool entries. Use the actual constant pool values
+            # instead, which are independently matchable substrings.
+            if invoke_owner:
+                _add(invoke_owner, source, technique, ev.detector_id)
+            if invoke_name:
+                _add(invoke_name, source, technique, ev.detector_id)
+        else:
+            _add(ev.matched_value, source, technique, ev.detector_id)
 
     for rs in analysis.reconstructed_strings:
         if rs.technique == "ldc_string":
