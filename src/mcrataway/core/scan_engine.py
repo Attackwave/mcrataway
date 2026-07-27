@@ -23,7 +23,7 @@ from mcrataway.parsers.archive import (
 )
 from mcrataway.parsers.classfile import parse_class
 from mcrataway.parsers.manifest import parse_archive_manifest
-from mcrataway.parsers.string_reconstructor import reconstruct_strings
+from mcrataway.parsers.string_reconstructor import ReconstructedString, reconstruct_strings
 from mcrataway.reporting.model import FileReport, Finding, ScanReport
 from mcrataway.rules.loader import RulePack
 
@@ -38,6 +38,8 @@ class ArtifactResult:
     confidence: float
     findings: list[Finding]
     metadata: dict[str, Any] = field(default_factory=dict)
+    evidence_index: EvidenceIndex | None = None
+    reconstructed_strings: list[ReconstructedString] | None = None
 
 
 class ScanEngine:
@@ -98,12 +100,20 @@ class ScanEngine:
     def scan_files(
         self,
         files: list[Path],
-        on_progress: Callable[[Path], None] | None = None
+        on_progress: Callable[[Path], None] | None = None,
+        keep_evidence_index: bool = False,
     ) -> list[ArtifactResult]:
         """Scan a list of files concurrently using ``max_workers`` threads.
-        
+
         If *on_progress* is provided, it is called with each file path
         immediately before it is scanned.
+
+        If *keep_evidence_index* is True, the per-archive EvidenceIndex
+        built during the scan is retained on ArtifactResult.evidence_index
+        instead of being discarded — used by the rulegen pipeline, which
+        needs the full correlated evidence, not just the flattened
+        Finding list. Default False preserves existing behavior for the
+        CLI, server, and all other callers.
         """
         if not files:
             return []
@@ -124,7 +134,7 @@ class ScanEngine:
                 # server path.
                 on_progress(f)
             try:
-                result = self._scan_single(f)
+                result = self._scan_single(f, keep_evidence_index=keep_evidence_index)
                 self.maybe_quarantine(f, result)
                 return result
             except Exception as exc:
@@ -171,7 +181,7 @@ class ScanEngine:
         if (is_mal and do_mal) or (is_susp and do_susp):
             self.quarantine.quarantine(path, result)
 
-    def _scan_single(self, path: Path) -> ArtifactResult:
+    def _scan_single(self, path: Path, *, keep_evidence_index: bool = False) -> ArtifactResult:
         """Scan a single file."""
         str_path = str(path)
         for pattern in self.excluded_paths:
@@ -198,7 +208,7 @@ class ScanEngine:
         suffix = path.suffix.lower()
 
         if suffix in (".jar", ".zip"):
-            return self._scan_archive(path, file_hash)
+            return self._scan_archive(path, file_hash, keep_evidence_index=keep_evidence_index)
         elif suffix in (".js", ".ts", ".mcfunction", ".lua"):
             return self._scan_script(path, file_hash)
         elif suffix in (".json", ".toml", ".yml", ".yaml", ".mcmeta", ".txt"):
@@ -212,7 +222,9 @@ class ScanEngine:
                 findings=[],
             )
 
-    def _scan_archive(self, path: Path, file_hash: str) -> ArtifactResult:
+    def _scan_archive(
+        self, path: Path, file_hash: str, *, keep_evidence_index: bool = False
+    ) -> ArtifactResult:
         """Scan a JAR/ZIP archive, recursing into nested archives.
 
         Nested archives (a JAR packed inside another JAR, e.g. Forge
@@ -247,10 +259,18 @@ class ScanEngine:
                 metadata=metadata,
             )
 
+        reconstructed_out: list[ReconstructedString] | None = (
+            [] if keep_evidence_index else None
+        )
         display_name = path.name
         try:
             manifest_metadata = self._analyze_archive_entries(
-                reader.entries(), display_name, index, size_budget, depth=0
+                reader.entries(),
+                display_name,
+                index,
+                size_budget,
+                depth=0,
+                reconstructed_out=reconstructed_out,
             )
         except Exception:
             return ArtifactResult(
@@ -324,6 +344,8 @@ class ScanEngine:
             confidence=confidence,
             findings=findings,
             metadata=metadata,
+            evidence_index=index if keep_evidence_index else None,
+            reconstructed_strings=reconstructed_out,
         )
 
     def _analyze_archive_entries(
@@ -333,6 +355,7 @@ class ScanEngine:
         index: EvidenceIndex,
         size_budget: SizeBudget,
         depth: int,
+        reconstructed_out: list[ReconstructedString] | None = None,
     ) -> dict[str, Any]:
         """Run detectors and rules over one archive's entries in a single
         pass, recursing into nested archives up to
@@ -385,7 +408,9 @@ class ScanEngine:
             if is_java_class(entry.data):
                 if entry.name.endswith(".class"):
                     class_entry_names.add(entry.name)
-                self._analyze_class_entry(entry, display_path, index)
+                self._analyze_class_entry(
+                    entry, display_path, index, reconstructed_out=reconstructed_out
+                )
                 continue
 
             nested_path = f"{display_path}!/{entry.name}"
@@ -394,7 +419,12 @@ class ScanEngine:
                 try:
                     nested_reader = ArchiveReader(entry.data, size_budget=size_budget)
                     self._analyze_archive_entries(
-                        nested_reader.entries(), nested_path, index, size_budget, depth + 1
+                        nested_reader.entries(),
+                        nested_path,
+                        index,
+                        size_budget,
+                        depth + 1,
+                        reconstructed_out=reconstructed_out,
                     )
                 except Exception:
                     index.add(
@@ -459,7 +489,11 @@ class ScanEngine:
         return metadata
 
     def _analyze_class_entry(
-        self, entry: ArchiveEntry, display_path: str, index: EvidenceIndex
+        self,
+        entry: ArchiveEntry,
+        display_path: str,
+        index: EvidenceIndex,
+        reconstructed_out: list[ReconstructedString] | None = None,
     ) -> None:
         """Parse and run all detectors + string reconstruction on one
         Java class entry."""
@@ -495,6 +529,8 @@ class ScanEngine:
         reconstructed = reconstruct_strings(parsed)
         reconstructed_by_detector = self._evaluate_reconstructed_strings(parsed, reconstructed)
         index.add_many(reconstructed_by_detector)
+        if reconstructed_out is not None:
+            reconstructed_out.extend(reconstructed)
 
     def _evaluate_reconstructed_strings(
         self, class_file: Any, reconstructed: list[Any]

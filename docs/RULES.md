@@ -94,6 +94,59 @@ success. On failure (missing signature, invalid signature, untrusted
 key) the previously installed version — if any — is left untouched;
 the fetch is logged as a warning, not treated as fatal.
 
+## Generating Rule Proposals
+
+`mcrataway rulegen` analyzes a directory of malware samples (or a
+single sample file) and proposes a detection rule, extracting literal
+patterns from matched evidence and reconstructed/decrypted strings:
+
+```bash
+mcrataway rulegen /path/to/samples --family my_new_family \
+    -o proposed.yaml
+```
+
+With multiple samples of the same family, only patterns appearing in
+at least `--min-sample-fraction` (default `0.6`, i.e. 60%) of the
+samples are kept, to avoid overfitting the rule to one specific
+variant. With a single sample, every extracted pattern is kept as-is.
+
+By default the output is written to
+`~/.mcrataway/rules/proposed/<family>.proposed.yaml` — a directory
+that `RulePackLoader.load_defaults()` does **not** scan, so a
+generated proposal is never automatically trusted or loaded, whatever
+severity it was given.
+
+## Reviewing Generated Rule Proposals
+
+A generated proposal is a starting point, not a finished rule — it has
+never been reviewed by a person and always defaults to `medium`
+severity regardless of how the underlying sample was classified, so
+that an accidentally-loaded proposal cannot trigger auto-quarantine.
+The generated YAML carries a `proposal_metadata` block (source sample
+hashes, generation timestamp, generator version, and notes) alongside
+the normal `pack_id`/`rules` fields — `RulePackLoader` ignores unknown
+top-level keys, so the file is directly testable without any
+conversion step:
+
+```bash
+mcrataway scan suspicious.jar --rules proposed.yaml
+```
+
+Once a proposal has been reviewed and, if necessary, adjusted (e.g.
+tightening a pattern, correcting the severity, dropping a
+false-positive-prone string), promote it by either:
+
+1. Copying/moving the file into `~/.mcrataway/rules/` (not the
+   `proposed/` subdirectory) — it will be loaded automatically on the
+   next `mcrataway scan`/`mcrataway serve` invocation, as a
+   locally-trusted rule pack.
+2. Including it in a rule-pack repository you distribute and sign, per
+   the "Remote Rule Updates and Signing" section above.
+
+`rulegen` never calls `sign_data()` itself and never writes into
+`~/.mcrataway/rules/` directly — signing and promotion out of
+`proposed/` are always a deliberate, manual step.
+
 ## Testing Rules
 
 ```bash
