@@ -15,6 +15,7 @@ from mcrataway.core.scan_engine import ScanEngine
 from mcrataway.discovery.os_paths import discover_roots
 from mcrataway.discovery.walker import FileWalker
 from mcrataway.reporting.console_writer import ConsoleWriter
+from mcrataway.rulegen.cli import rulegen
 from mcrataway.rules.loader import RulePackLoader
 
 
@@ -23,6 +24,9 @@ from mcrataway.rules.loader import RulePackLoader
 def main() -> None:
     """mcrataway - Minecraft mod malware scanner."""
     ensure_config_dir()
+
+
+main.add_command(rulegen)
 
 
 @main.command()
