@@ -79,6 +79,14 @@ class UserConfig:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
             yaml.dump(self.__dict__, f, default_flow_style=False)
+        # Matches TOKEN_FILE's permissions (see server/auth.py): the
+        # config can contain scanned paths and quarantine locations,
+        # which on a multi-user system reveal information about what
+        # the user has been scanning/finding to other local accounts.
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
 
 
 def ensure_config_dir() -> None:

@@ -1,6 +1,7 @@
 """Quarantine manager — moves malicious files to a safe directory with manifest."""
 
 import contextlib
+import enum
 import json
 import re
 import shutil
@@ -12,7 +13,7 @@ from typing import Any
 from mcrataway.constants import QUARANTINE_DIR
 
 # SHA-256 hashes are 64 lowercase hex characters
-_SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
+SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 
 
 @dataclass
@@ -27,6 +28,39 @@ class QuarantineManifest:
     findings: list[dict[str, Any]]
     timestamp: str
     restored: bool = False
+
+
+class QuarantineOutcome(enum.Enum):
+    """Why QuarantineManager.quarantine() did or did not produce a
+    manifest. Distinguishing these matters: SUCCESS and
+    ALREADY_QUARANTINED/SOURCE_MISSING are all fine outcomes (nothing
+    for a caller to warn about), but FAILED means the file was
+    supposedly quarantined yet is still sitting where it was — the
+    single most dangerous silent failure mode for this tool, since a
+    MALICIOUS verdict with no visible warning could make a user
+    believe a threat was contained when it was not.
+    """
+
+    SUCCESS = "success"
+    ALREADY_QUARANTINED = "already_quarantined"
+    SOURCE_MISSING = "source_missing"
+    FAILED = "failed"
+
+
+@dataclass
+class QuarantineResult:
+    """Result of a single QuarantineManager.quarantine() call."""
+
+    outcome: QuarantineOutcome
+    manifest: QuarantineManifest | None = None
+
+    def __bool__(self) -> bool:
+        # Kept for the pre-existing "if qm.quarantine(...):" style
+        # callers — only SUCCESS is truthy, everything else (including
+        # the previously-indistinguishable ALREADY_QUARANTINED/
+        # SOURCE_MISSING/FAILED cases) is falsy, same as the old
+        # Manifest | None return value collapsed them all to.
+        return self.outcome is QuarantineOutcome.SUCCESS
 
 
 class QuarantineManager:
@@ -49,7 +83,7 @@ class QuarantineManager:
         self,
         path: Path,
         result: object,  # ArtifactResult
-    ) -> QuarantineManifest | None:
+    ) -> QuarantineResult:
         """Move a file to quarantine and write manifest.
 
         Refuses to re-quarantine a hash that is already present in the
@@ -57,13 +91,21 @@ class QuarantineManager:
         would otherwise overwrite the first manifest (losing the first
         original_path) and the restore step would only reinstate the
         most recently quarantined copy.
+
+        Returns a QuarantineResult whose .outcome distinguishes a real
+        failure (FAILED — the file is still sitting where it was,
+        despite a MALICIOUS/SUSPICIOUS verdict) from the harmless cases
+        (SUCCESS, ALREADY_QUARANTINED, SOURCE_MISSING) that the old
+        Manifest | None return value collapsed into an indistinguishable
+        None — callers that only care about "did it work" can keep
+        using truthiness (see QuarantineResult.__bool__).
         """
         if not path.exists():
-            return None
+            return QuarantineResult(QuarantineOutcome.SOURCE_MISSING)
 
         sha256 = getattr(result, "file_hash", "")
         if not sha256:
-            return None
+            return QuarantineResult(QuarantineOutcome.SOURCE_MISSING)
 
         self.quarantine_dir.mkdir(parents=True, exist_ok=True)
 
@@ -73,7 +115,7 @@ class QuarantineManager:
             # Already quarantined — refuse to clobber the existing
             # entry to preserve the first original_path and avoid
             # data loss on restore.
-            return None
+            return QuarantineResult(QuarantineOutcome.ALREADY_QUARANTINED)
         quarantine_path.mkdir(parents=True, exist_ok=True)
 
         # Preserve relative path structure, but make the filename unique
@@ -129,16 +171,16 @@ class QuarantineManager:
                 with contextlib.suppress(Exception):
                     if placeholder.exists():
                         placeholder.unlink()
-                return None
+                return QuarantineResult(QuarantineOutcome.FAILED)
 
-            return manifest
+            return QuarantineResult(QuarantineOutcome.SUCCESS, manifest)
 
         except Exception:
-            return None
+            return QuarantineResult(QuarantineOutcome.FAILED)
 
     def restore(self, sha256: str) -> bool:
         """Restore a quarantined file to its original location."""
-        if not _SHA256_RE.match(sha256):
+        if not SHA256_RE.match(sha256):
             return False
         quarantine_path = self.quarantine_dir / sha256
         manifest_path = quarantine_path / "manifest.json"
@@ -214,7 +256,14 @@ class QuarantineManager:
     def delete_permanently(self, item_id: str) -> bool:
         """Permanently delete a quarantined item from disk."""
         item_id_clean = item_id.strip()
-        if not item_id_clean or not self.quarantine_dir.exists():
+        # Validated the same way restore() validates its sha256
+        # argument: quarantine entries are always named by hash (see
+        # quarantine()/QuarantineManifest), so anything else cannot be
+        # a legitimate item_id. Without this check, item_id flowed
+        # straight into quarantine_dir / item_id_clean and then into
+        # shutil.rmtree/unlink — a value like "../../some/other/dir"
+        # would delete an arbitrary directory outside quarantine_dir.
+        if not SHA256_RE.match(item_id_clean.lower()) or not self.quarantine_dir.exists():
             return False
 
         quarantine_path = self.quarantine_dir / item_id_clean

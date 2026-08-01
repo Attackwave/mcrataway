@@ -66,10 +66,18 @@ class EvidenceIndex:
     def has_cooccurring(
         self, class_name: str, detector_id_a: str, detector_id_b: str
     ) -> bool:
-        """Check if two detector types both fired in the same class."""
+        """Check if two detector types both fired in the same class.
+
+        Compares detector_id by exact equality, not substring
+        containment: all current detector IDs are short, collision-free
+        codes ("d01".."d14"), but a substring check ("d1" in
+        e.detector_id) would silently also match "d10".."d14" if a
+        caller ever passed a shorter/more generic id — a false
+        co-occurrence with no error to signal it.
+        """
         evs = self._class_evidence.get(class_name, [])
-        has_a = any(detector_id_a in e.detector_id for e in evs)
-        has_b = any(detector_id_b in e.detector_id for e in evs)
+        has_a = any(detector_id_a == e.detector_id for e in evs)
+        has_b = any(detector_id_b == e.detector_id for e in evs)
         return has_a and has_b
 
     def set_capability_flag(self, class_name: str, capability: str) -> None:

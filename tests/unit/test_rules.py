@@ -148,3 +148,37 @@ def test_rule_pack_deduplication(tmp_path):
     loader.load_pack(file2)
     assert len(loader.packs) == 1
     assert loader.packs[0].rules[0].rule_id == "r2"
+
+
+def test_rule_pack_rejects_unrecognized_condition(tmp_path):
+    """A condition like 'count(net) >= 2' is not a supported form —
+    the loader must skip the rule entirely rather than silently
+    falling back to 'any' (matching on a single string), which would
+    load the rule as far weaker than the author intended without any
+    warning."""
+    yaml_content = (
+        "pack_id: my_pack\n"
+        "rules:\n"
+        "  - id: bad_condition\n"
+        "    severity: high\n"
+        "    description: test\n"
+        "    strings:\n"
+        "      - kind: literal\n"
+        "        value: foo\n"
+        "    condition: 'count(net) >= 2'\n"
+        "  - id: good_condition\n"
+        "    severity: high\n"
+        "    description: test\n"
+        "    strings:\n"
+        "      - kind: literal\n"
+        "        value: bar\n"
+        "    condition: 'count() >= 1'\n"
+    )
+    file = tmp_path / "pack.yaml"
+    file.write_text(yaml_content)
+
+    loader = RulePackLoader()
+    loader.load_pack(file)
+    assert len(loader.packs) == 1
+    rule_ids = {r.rule_id for r in loader.packs[0].rules}
+    assert rule_ids == {"good_condition"}

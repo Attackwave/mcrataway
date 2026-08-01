@@ -15,6 +15,10 @@ from mcrataway.rules.updater import RuleUpdater
 router = APIRouter(prefix="/system", tags=["system"])
 
 
+class WhitelistRequest(BaseModel):
+    sha256: str
+
+
 class ConfigUpdateModel(BaseModel):
     custom_roots: list[str] | None = None
     max_workers: int | None = None
@@ -112,3 +116,28 @@ async def update_rules() -> dict[str, Any]:
         "downloaded_count": len(downloaded),
         "files": [str(p) for p in downloaded],
     }
+
+
+@router.post("/whitelist")
+async def whitelist_hash(req: WhitelistRequest, request: Request) -> dict[str, Any]:
+    """Add a single SHA-256 hash to the whitelist.
+
+    Additive (append-if-missing), unlike POST /system/config, which
+    replaces whitelisted_hashes wholesale — a UI action like "mark
+    this finding as a false positive" should not require the client to
+    round-trip the entire current whitelist first, and two concurrent
+    whitelist actions must not clobber each other.
+    """
+    from mcrataway.core.quarantine import SHA256_RE
+
+    sha256 = req.sha256.strip().lower()
+    if not SHA256_RE.match(sha256):
+        return {"success": False, "error": "Invalid SHA-256 hash"}
+
+    config: UserConfig = request.app.state.config
+    if sha256 not in config.whitelisted_hashes:
+        config.whitelisted_hashes.append(sha256)
+        config.save()
+        request.app.state.config = config
+
+    return {"success": True, "whitelisted_hashes": config.whitelisted_hashes}

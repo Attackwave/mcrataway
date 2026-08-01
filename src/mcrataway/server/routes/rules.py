@@ -1,8 +1,9 @@
 """Rules routes — list, edit, and test rule packs."""
 
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/rules", tags=["rules"])
@@ -38,16 +39,30 @@ async def list_rules() -> list[dict[str, Any]]:
 
 
 @router.post("/test")
-async def test_rule(req: RuleTestRequest) -> dict[str, Any]:
-    """Test a rule pack against a sample file."""
-    from pathlib import Path
+async def test_rule(req: RuleTestRequest, request: Request) -> dict[str, Any]:
+    """Test a rule pack against a sample file.
 
+    *file_path* is validated against the same server-side scan-root
+    allowlist as ``POST /scan/`` — without this, a caller that reaches
+    this endpoint could have arbitrary files on disk read and their
+    contents (via rule match output) returned, regardless of whether
+    they were ever added as a scan root.
+    """
     from mcrataway.parsers.archive import ArchiveReader
     from mcrataway.rules.loader import RulePackLoader
+    from mcrataway.server.routes.scan import _allowed_roots
 
-    path = Path(req.file_path)
+    try:
+        path = Path(req.file_path).resolve()
+    except Exception:
+        return {"error": "Invalid file path"}
+
     if not path.exists():
         return {"error": "File not found"}
+
+    allowed = _allowed_roots(request.app.state.config)
+    if not any(path == root or root in path.parents for root in allowed):
+        return {"error": "File is outside the allowed scan roots"}
 
     loader = RulePackLoader()
     loader.load_defaults()
