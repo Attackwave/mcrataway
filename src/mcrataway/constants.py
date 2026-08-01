@@ -4,17 +4,11 @@ import os
 from enum import IntEnum, StrEnum
 from pathlib import Path
 
-import importlib.metadata
+import mcrataway
 
 # Scanner metadata
 SCANNER_NAME = "mcrataway"
-try:
-    SCANNER_VERSION = importlib.metadata.version("mcrataway")
-except Exception:
-    try:
-        from mcrataway import __version__ as SCANNER_VERSION
-    except Exception:
-        SCANNER_VERSION = "2.0.1"
+SCANNER_VERSION: str = mcrataway.__version__
 
 # Default server bind
 DEFAULT_HOST = "127.0.0.1"
