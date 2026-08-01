@@ -84,13 +84,25 @@ mcrataway serve [--host 127.0.0.1] [--port 8765] [--reload]
 | POST | `/scan/` | Start scan job |
 | GET | `/scan/{id}` | Job status |
 | WS | `/scan/{id}/stream` | Live progress + findings |
-| GET | `/findings/` | List findings |
+| GET | `/findings/` | List currently flagged files (filterable by `?severity=`) |
+| POST | `/findings/clear` | Dismiss all findings from view (does not affect History) |
+| GET | `/history/` | List past completed scan sessions |
+| GET | `/history/{id}` | Full persisted report for one past session |
+| DELETE | `/history/{id}` | Delete one past session |
+| POST | `/history/purge` | Delete all past sessions |
 | GET | `/rules/` | List rule packs |
+| POST | `/rules/test` | Test a rule pack against a sample file |
 | GET | `/quarantine/` | List quarantined items |
-| DELETE | `/quarantine/{sha256}` | Restore item |
-| GET | `/reports/{id}` | Full report |
+| POST | `/quarantine/{sha256}` | Quarantine a specific file |
+| DELETE | `/quarantine/{sha256}/restore` | Restore item |
+| DELETE | `/quarantine/{sha256}` | Permanently delete item |
+| POST | `/quarantine/purge` | Permanently delete all quarantined items |
+| GET | `/reports/{id}` | Full report for an in-memory job |
 | GET | `/system/roots` | Discovered roots |
 | GET | `/system/health` | Liveness probe |
+| GET/POST | `/system/config` | Read/update user configuration |
+| POST | `/system/whitelist` | Whitelist a SHA-256 hash |
+| POST | `/system/update-rules` | Fetch latest signed rule packs |
 
 ### Web UI
 
