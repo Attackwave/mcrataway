@@ -9,7 +9,7 @@ import click
 import rich
 
 from mcrataway.config import UserConfig, ensure_config_dir
-from mcrataway.constants import DEFAULT_HOST, DEFAULT_PORT
+from mcrataway.constants import DEFAULT_HOST, DEFAULT_PORT, SCANNER_VERSION
 from mcrataway.core.quarantine import QuarantineManager
 from mcrataway.core.scan_engine import ScanEngine
 from mcrataway.discovery.os_paths import discover_roots
@@ -20,7 +20,13 @@ from mcrataway.rules.loader import RulePackLoader
 
 
 @click.group()
-@click.version_option(package_name="mcrataway")
+@click.version_option(
+    version=SCANNER_VERSION,
+    # Not package_name="mcrataway": that makes Click call
+    # importlib.metadata.version(), which reads whatever was installed
+    # (can silently go stale on `pip install -e .` without reinstalling)
+    # instead of the single source of truth in mcrataway/__init__.py.
+)
 @click.option(
     "--home-dir",
     type=click.Path(path_type=Path),
