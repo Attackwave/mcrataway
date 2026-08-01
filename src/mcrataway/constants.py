@@ -24,6 +24,7 @@ CONFIG_DIR = Path.home() / ".mcrataway"
 QUARANTINE_DIR = CONFIG_DIR / "quarantine"
 TOKEN_FILE = CONFIG_DIR / "token"
 CONFIG_FILE = CONFIG_DIR / "config.yaml"
+HISTORY_DIR = CONFIG_DIR / "history"
 
 # Java bytecode magic
 JAVA_CLASS_MAGIC = b"\xCA\xFE\xBA\xBE"

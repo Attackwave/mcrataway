@@ -24,6 +24,7 @@ def isolated_mcrataway_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     quarantine_dir = config_dir / "quarantine"
     token_file = config_dir / "token"
     config_file = config_dir / "config.yaml"
+    history_dir = config_dir / "history"
 
     import mcrataway.constants as constants_mod
 
@@ -31,6 +32,7 @@ def isolated_mcrataway_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(constants_mod, "QUARANTINE_DIR", quarantine_dir)
     monkeypatch.setattr(constants_mod, "TOKEN_FILE", token_file)
     monkeypatch.setattr(constants_mod, "CONFIG_FILE", config_file)
+    monkeypatch.setattr(constants_mod, "HISTORY_DIR", history_dir)
 
     # Modules that imported these names directly (``from ... import X``)
     # hold their own reference and are not affected by patching the
@@ -53,5 +55,9 @@ def isolated_mcrataway_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 
     monkeypatch.setattr(updater_mod, "CONFIG_DIR", config_dir)
     monkeypatch.setattr(updater_mod, "RULES_DIR", config_dir / "rules")
+
+    import mcrataway.server.history as history_mod
+
+    monkeypatch.setattr(history_mod, "HISTORY_DIR", history_dir)
 
     return home

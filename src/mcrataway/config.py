@@ -26,6 +26,7 @@ class UserConfig:
         excluded_paths: list[str] | None = None,
         disabled_rules: list[str] | None = None,
         quarantine_dir: str | None = None,
+        history_max_entries: int = 50,
     ) -> None:
         self.custom_roots = custom_roots or []
         self.max_workers = max_workers
@@ -41,6 +42,7 @@ class UserConfig:
         self.excluded_paths = excluded_paths or []
         self.disabled_rules = disabled_rules or []
         self.quarantine_dir = quarantine_dir or str(QUARANTINE_DIR)
+        self.history_max_entries = history_max_entries
 
     @classmethod
     def load(cls, path: Path | None = None) -> "UserConfig":
@@ -68,6 +70,7 @@ class UserConfig:
                 "excluded_paths",
                 "disabled_rules",
                 "quarantine_dir",
+                "history_max_entries",
             }
             filtered = {k: v for k, v in data.items() if k in valid_keys}
             return cls(**filtered)
