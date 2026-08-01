@@ -94,7 +94,7 @@ mcrataway serve [--host 127.0.0.1] [--port 8765] [--reload]
 
 ### Web UI
 
-React SPA served from `server/static/`. Four pages: Scan, Findings, Rules, Quarantine. Built with Vite + TypeScript + Tailwind CSS. Live progress via WebSocket.
+Self-contained HTML/CSS/JS dashboard served directly from `server/static/index.html` — no build step, no Node toolchain. Live progress via WebSocket.
 
 ## Key Design Decisions
 

@@ -17,7 +17,7 @@
 * 🛡️ **YAML Threat Intelligence Rules**: Supports custom and dynamically updateable YAML rule packs for rapid threat signature distribution against new obfuscators and malware variants.
 * 🔒 **Reversible Safe Quarantine**: Isolates suspicious or infected files into a secure directory accompanied by JSON metadata manifests for safe analysis or easy restoration.
 * 💻 **Web UI & Headless CLI**:
-  * **Web Dashboard**: Modern interface (FastAPI + React) with real-time WebSocket scan progress, interactive rule toggles, and quarantine management.
+  * **Web Dashboard**: Self-contained HTML/CSS/JS interface served by FastAPI with real-time WebSocket scan progress, interactive rule toggles, and quarantine management.
   * **Headless CLI**: Scriptable command-line interface ideal for automated server checks, CI/CD pipelines, and bulk modpack verification.
 
 ---
