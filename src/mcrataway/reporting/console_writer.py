@@ -17,10 +17,31 @@ class ConsoleWriter:
 
     def print_report(self, report: ScanReport) -> None:
         """Print a full scan report."""
+        time_str = report.timestamp
+        try:
+            from datetime import datetime
+            from mcrataway.config import UserConfig
+            config = UserConfig.load()
+            dt = datetime.fromisoformat(report.timestamp.replace("Z", "+00:00"))
+            
+            date_fmt = "%Y-%m-%d"
+            if config.date_format == "DD.MM.YYYY":
+                date_fmt = "%d.%m.%Y"
+            elif config.date_format == "MM/DD/YYYY":
+                date_fmt = "%m/%d/%Y"
+                
+            time_fmt = "%H:%M:%S"
+            if config.time_format == "12h":
+                time_fmt = "%I:%M:%S %p"
+                
+            time_str = dt.strftime(f"{date_fmt} {time_fmt}")
+        except Exception:
+            pass
+
         self.console.print()
         self.console.print("[bold]Scan Report[/bold]")
         self.console.print(f"  ID: {report.scan_id}")
-        self.console.print(f"  Time: {report.timestamp}")
+        self.console.print(f"  Time: {time_str}")
         self.console.print(f"  Host: {report.hostname}")
         self.console.print(f"  Roots: {len(report.scanned_roots)}")
         self.console.print()

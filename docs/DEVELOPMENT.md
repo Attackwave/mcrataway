@@ -3,8 +3,6 @@
 ## Prerequisites
 
 - Python 3.12+
-- Node.js 20+ (frontend build only)
-- npm (frontend build only)
 
 ## Backend Development
 
@@ -28,22 +26,10 @@ mcrataway serve --reload
 
 ## Frontend Development
 
-```bash
-cd web
-npm install
-npm run dev       # Vite dev server with proxy to :8765
-```
-
-The Vite dev server proxies API requests to the FastAPI backend at `http://127.0.0.1:8765`.
-
-## Building the Frontend
-
-```bash
-cd web
-npm run build     # Outputs to ../src/mcrataway/server/static/
-```
-
-The built bundle is embedded in the Python package. End users do not need Node.js at runtime.
+The web dashboard is a single self-contained file,
+`src/mcrataway/server/static/index.html` — no build step, no Node
+toolchain. Edit it directly and reload the page in your browser while
+`mcrataway serve` is running.
 
 ## Adding a New Detector
 
@@ -87,9 +73,6 @@ This generates synthetic JAR files:
 ## Release Process
 
 ```bash
-# Build frontend
-cd web && npm run build && cd ..
-
 # Build Python package
 python -m build
 

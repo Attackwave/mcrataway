@@ -259,3 +259,60 @@ async def test_history_delete(client: AsyncClient, tmp_path: Path):
 
     delete_again_resp = await client.delete(f"/history/{job_id}")
     assert delete_again_resp.json() == {"success": False}
+
+
+@pytest.mark.asyncio
+async def test_history_purge(client: AsyncClient, tmp_path: Path):
+    fixtures_dir = _scratch_fixtures_dir(tmp_path)
+    job_id_a = await _run_scan_to_completion(client, [fixtures_dir])
+    job_id_b = await _run_scan_to_completion(client, [fixtures_dir])
+
+    list_resp = await client.get("/history/")
+    entries = list_resp.json()
+    assert any(e["scan_id"] == job_id_a for e in entries)
+    assert any(e["scan_id"] == job_id_b for e in entries)
+
+    purge_resp = await client.post("/history/purge")
+    assert purge_resp.status_code == 200
+    data = purge_resp.json()
+    assert data["success"] is True
+    assert data["purged_count"] >= 2
+
+    list_after = await client.get("/history/")
+    assert list_after.json() == []
+
+
+@pytest.mark.asyncio
+async def test_findings_clear(client: AsyncClient, tmp_path: Path):
+    fixtures_dir = _scratch_fixtures_dir(tmp_path)
+    await _run_scan_to_completion(client, [fixtures_dir])
+
+    before = await client.get("/findings/")
+    assert before.status_code == 200
+    # (fixtures include malicious samples, so findings should be non-empty;
+    # if a future fixture set changes that, this assertion should be
+    # revisited rather than silently weakened.)
+    assert len(before.json()) > 0
+
+    clear_resp = await client.post("/findings/clear")
+    assert clear_resp.status_code == 200
+    assert clear_resp.json() == {"success": True}
+
+    after = await client.get("/findings/")
+    assert after.json() == []
+
+
+@pytest.mark.asyncio
+async def test_findings_clear_does_not_affect_history(client: AsyncClient, tmp_path: Path):
+    """Clearing the Findings view must not delete the corresponding
+    scan's persisted History entry — History is a durable audit trail
+    independent of the dismissible Findings working view."""
+    fixtures_dir = _scratch_fixtures_dir(tmp_path)
+    job_id = await _run_scan_to_completion(client, [fixtures_dir])
+
+    clear_resp = await client.post("/findings/clear")
+    assert clear_resp.json() == {"success": True}
+
+    history_resp = await client.get(f"/history/{job_id}")
+    assert history_resp.status_code == 200
+    assert "error" not in history_resp.json()

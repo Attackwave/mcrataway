@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from mcrataway.constants import CONFIG_DIR, CONFIG_FILE, DEFAULT_HOST, DEFAULT_PORT, QUARANTINE_DIR
+from mcrataway.constants import CONFIG_DIR, CONFIG_FILE, QUARANTINE_DIR
 
 
 class UserConfig:
@@ -16,8 +16,6 @@ class UserConfig:
         max_workers: int = 4,
         quarantine_suspicious: bool = False,
         quarantine_malicious: bool = True,
-        server_host: str = DEFAULT_HOST,
-        server_port: int = DEFAULT_PORT,
         scan_archives: bool = True,
         scan_scripts: bool = True,
         scan_configs: bool = True,
@@ -27,13 +25,13 @@ class UserConfig:
         disabled_rules: list[str] | None = None,
         quarantine_dir: str | None = None,
         history_max_entries: int = 50,
+        date_format: str = "YYYY-MM-DD",
+        time_format: str = "24h",
     ) -> None:
         self.custom_roots = custom_roots or []
         self.max_workers = max_workers
         self.quarantine_suspicious = quarantine_suspicious
         self.quarantine_malicious = quarantine_malicious
-        self.server_host = server_host
-        self.server_port = server_port
         self.scan_archives = scan_archives
         self.scan_scripts = scan_scripts
         self.scan_configs = scan_configs
@@ -43,12 +41,19 @@ class UserConfig:
         self.disabled_rules = disabled_rules or []
         self.quarantine_dir = quarantine_dir or str(QUARANTINE_DIR)
         self.history_max_entries = history_max_entries
+        self.date_format = date_format
+        self.time_format = time_format
 
     @classmethod
     def load(cls, path: Path | None = None) -> "UserConfig":
         path = path or CONFIG_FILE
         if not path.exists():
-            return cls()
+            default_cfg = cls()
+            try:
+                default_cfg.save(path)
+            except Exception:
+                pass
+            return default_cfg
         try:
             with open(path) as f:
                 data = yaml.safe_load(f) or {}
@@ -60,8 +65,6 @@ class UserConfig:
                 "max_workers",
                 "quarantine_suspicious",
                 "quarantine_malicious",
-                "server_host",
-                "server_port",
                 "scan_archives",
                 "scan_scripts",
                 "scan_configs",
@@ -71,6 +74,8 @@ class UserConfig:
                 "disabled_rules",
                 "quarantine_dir",
                 "history_max_entries",
+                "date_format",
+                "time_format",
             }
             filtered = {k: v for k, v in data.items() if k in valid_keys}
             return cls(**filtered)

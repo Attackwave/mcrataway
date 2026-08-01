@@ -73,9 +73,17 @@ mcrataway is a Minecraft mod malware scanner that analyzes Java bytecode, script
 ### CLI
 
 ```bash
-mcrataway scan <paths...> [--report out.json] [--quarantine] [--auto]
-mcrataway serve [--host 127.0.0.1] [--port 8765] [--reload]
+mcrataway [--home-dir DIR] scan <paths...> [--report out.json] [--quarantine] [--auto]
+mcrataway [--home-dir DIR] serve [--host 127.0.0.1] [--port 8765] [--reload]
 ```
+
+`--home-dir` relocates the whole `~/.mcrataway` tree — config,
+quarantine, history, rules, auth token — and must be given before the
+subcommand, since it has to be resolved before `config.yaml` itself can
+be found. It's persisted to `~/.config/mcrataway/home_dir` on first use,
+so it only needs to be passed once (`--home-dir default` clears it).
+`MCRATAWAY_HOME` is a non-persisted, higher-priority override for the
+same setting.
 
 ### Server (FastAPI)
 
@@ -84,17 +92,29 @@ mcrataway serve [--host 127.0.0.1] [--port 8765] [--reload]
 | POST | `/scan/` | Start scan job |
 | GET | `/scan/{id}` | Job status |
 | WS | `/scan/{id}/stream` | Live progress + findings |
-| GET | `/findings/` | List findings |
+| GET | `/findings/` | List currently flagged files (filterable by `?severity=`) |
+| POST | `/findings/clear` | Dismiss all findings from view (does not affect History) |
+| GET | `/history/` | List past completed scan sessions |
+| GET | `/history/{id}` | Full persisted report for one past session |
+| DELETE | `/history/{id}` | Delete one past session |
+| POST | `/history/purge` | Delete all past sessions |
 | GET | `/rules/` | List rule packs |
+| POST | `/rules/test` | Test a rule pack against a sample file |
 | GET | `/quarantine/` | List quarantined items |
-| DELETE | `/quarantine/{sha256}` | Restore item |
-| GET | `/reports/{id}` | Full report |
+| POST | `/quarantine/{sha256}` | Quarantine a specific file |
+| DELETE | `/quarantine/{sha256}/restore` | Restore item |
+| DELETE | `/quarantine/{sha256}` | Permanently delete item |
+| POST | `/quarantine/purge` | Permanently delete all quarantined items |
+| GET | `/reports/{id}` | Full report for an in-memory job |
 | GET | `/system/roots` | Discovered roots |
 | GET | `/system/health` | Liveness probe |
+| GET/POST | `/system/config` | Read/update user configuration |
+| POST | `/system/whitelist` | Whitelist a SHA-256 hash |
+| POST | `/system/update-rules` | Fetch latest signed rule packs |
 
 ### Web UI
 
-React SPA served from `server/static/`. Four pages: Scan, Findings, Rules, Quarantine. Built with Vite + TypeScript + Tailwind CSS. Live progress via WebSocket.
+Self-contained HTML/CSS/JS dashboard served directly from `server/static/index.html` — no build step, no Node toolchain. Live progress via WebSocket.
 
 ## Key Design Decisions
 

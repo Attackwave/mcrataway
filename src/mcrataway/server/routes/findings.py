@@ -20,22 +20,49 @@ async def list_findings(
 ) -> list[dict[str, Any]]:
     """List all per-file findings across jobs, optionally filtered by severity.
 
-    The filter compares against the severity of the *nested detector
-    findings* (``finding["findings"][i]["severity"]``), not a top-level
-    field, because each file entry aggregates many detector findings.
+    Keep only the latest unique finding per file path, and filter out
+    files that no longer exist on disk. Jobs dismissed via
+    POST /findings/clear are skipped — see JobRegistry.dismiss_all_findings.
     """
+    import os
     registry = request.app.state.job_registry
     wanted = severity.upper() if severity else None
-    all_findings: list[dict[str, Any]] = []
+    findings_map: dict[str, dict[str, Any]] = {}
+
     for job in registry.list_jobs():
+        if registry.is_dismissed(job.job_id):
+            continue
         for finding in job.findings:
-            if wanted is None:
-                all_findings.append(finding)
+            fp = finding.get("file_path", "")
+            if not fp:
                 continue
-            nested = finding.get("findings", [])
-            if any(f.get("severity", "").upper() == wanted for f in nested):
-                all_findings.append(finding)
-    return all_findings
+            
+            # If the file has been deleted or quarantined, it's no longer a threat
+            if not os.path.exists(fp):
+                continue
+                
+            if wanted is not None:
+                nested = finding.get("findings", [])
+                if not any(f.get("severity", "").upper() == wanted for f in nested):
+                    continue
+            
+            # Overwrite with the latest finding for this file path
+            findings_map[fp] = finding
+            
+    return list(findings_map.values())
+
+
+@router.post("/clear")
+async def clear_findings(request: Request) -> dict[str, Any]:
+    """Dismiss all currently-visible findings from the Findings view.
+
+    This does not delete any job data or affect the persisted scan
+    History — it only hides them from GET /findings/ until a new scan
+    produces fresh findings. See JobRegistry.dismiss_all_findings.
+    """
+    registry = request.app.state.job_registry
+    registry.dismiss_all_findings()
+    return {"success": True}
 
 
 @router.get("/{finding_id}")

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import Request
@@ -30,17 +28,13 @@ def get_scan_engine() -> ScanEngine:
 def get_quarantine() -> QuarantineManager:
     """Get or create the QuarantineManager.
 
-    Uses the same default as :class:`QuarantineManager` itself (the
-    ``QUARANTINE_DIR`` constant, ``~/.mcrataway/quarantine``) unless
-    ``MCRATAWAY_QUARANTINE_DIR`` is set — consistent with
-    :func:`mcrataway.server.app.create_app`.
+    Always uses the default from :class:`QuarantineManager` itself (the
+    ``QUARANTINE_DIR`` constant, i.e. ``<home dir>/quarantine`` — see
+    ``MCRATAWAY_HOME``/``--home-dir`` to relocate it).
     """
     fn = cast("Any", get_quarantine)
     if not hasattr(fn, "_instance"):
-        override = os.environ.get("MCRATAWAY_QUARANTINE_DIR")
-        fn._instance = (
-            QuarantineManager(Path(override)) if override else QuarantineManager()
-        )
+        fn._instance = QuarantineManager()
     return cast(QuarantineManager, fn._instance)
 
 
