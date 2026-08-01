@@ -69,3 +69,26 @@ class ConsoleWriter:
                     )
 
             self.console.print(findings_table)
+
+        # A failed quarantine attempt is the most dangerous silent
+        # failure mode this tool has: the verdict says MALICIOUS/
+        # SUSPICIOUS but the file was NOT actually isolated (disk
+        # full, permission denied, etc — see
+        # core/quarantine.py:QuarantineOutcome.FAILED). Surface it
+        # loudly here rather than leaving it only in the JSON report's
+        # metadata field, where a user would have to know to look for it.
+        failed = [
+            f for f in report.files if f.metadata.get("quarantine_failed")
+        ]
+        if failed:
+            self.console.print()
+            self.console.print(
+                "[bold red]WARNING: quarantine failed for the following "
+                "file(s) — they are still on disk, unmodified:[/bold red]"
+            )
+            for f in failed:
+                self.console.print(f"  [red]{f.file_path}[/red]")
+            self.console.print(
+                "[red]Check disk space and file permissions, then re-run "
+                "the scan.[/red]"
+            )

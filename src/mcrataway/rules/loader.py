@@ -13,6 +13,7 @@ sliding-window tail (see :class:`RuleMatchState`) rather than by
 requiring the whole archive in memory at once.
 """
 
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,6 +24,17 @@ import yaml
 
 from mcrataway.constants import Severity
 from mcrataway.parsers.archive import ArchiveEntry, is_java_class
+
+logger = logging.getLogger(__name__)
+
+# The only condition forms a rule is allowed to declare. Anything else
+# (a typo, an unsupported form like "count(net) >= 2") is rejected at
+# load time rather than silently falling back to "any" — a rule
+# authored to require multiple corroborating strings must not become
+# a much weaker one-string-is-enough rule without any warning.
+_VALID_CONDITION_RE = re.compile(
+    r"^(all|any|count\s*\(\s*\)\s*>=\s*\d+)$"
+)
 
 # Maximum text length scanned by a single regex per entry (1 MB) —
 # still bounds worst-case regex cost per entry even though entries are
@@ -308,7 +320,16 @@ class RulePack:
         # Simple condition parsing:
         # "all" = all strings must match
         # "any" = any string must match
-        # "count(X) >= N" = at least N strings must match
+        # "count() >= N" = at least N distinct strings must match
+        #
+        # RulePackLoader.load_pack validates conditions against this
+        # exact grammar at load time and skips any rule with an
+        # unrecognized condition, so by the time a RuleDefinition
+        # reaches here its condition is always one of these three forms
+        # — the bool(matches) fallback below is unreachable via the
+        # loader, but is kept as a safe default for RuleDefinition
+        # objects constructed directly (e.g. by rulegen) rather than
+        # through load_pack.
         condition = condition.strip().lower()
 
         if condition == "all":
@@ -316,7 +337,6 @@ class RulePack:
         if condition == "any":
             return bool(matches)
 
-        # Parse "count(...) >= N"
         count_match = re.search(r"count\s*\(\s*\)\s*>=\s*(\d+)", condition)
         if count_match:
             threshold = int(count_match.group(1))
@@ -361,6 +381,16 @@ class RulePackLoader:
             severity_str = rule_data.get("severity", "medium").upper()
             severity = getattr(Severity, severity_str, Severity.MEDIUM)
 
+            condition = rule_data.get("condition", "")
+            if condition and not _VALID_CONDITION_RE.match(condition.strip().lower()):
+                logger.warning(
+                    "Rule %r in %s has an unrecognized condition %r "
+                    "(expected 'all', 'any', or 'count() >= N') — skipping "
+                    "this rule rather than silently loading it as 'any'.",
+                    rule_data.get("id", "<unnamed>"), path, condition,
+                )
+                continue
+
             rules.append(
                 RuleDefinition(
                     rule_id=rule_data.get("id", ""),
@@ -368,7 +398,7 @@ class RulePackLoader:
                     severity=severity,
                     description=rule_data.get("description", ""),
                     strings=rule_data.get("strings", []),
-                    condition=rule_data.get("condition", ""),
+                    condition=condition,
                 )
             )
 

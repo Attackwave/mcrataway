@@ -8,6 +8,7 @@ import pytest
 
 from mcrataway.config import UserConfig
 from mcrataway.constants import Verdict
+from mcrataway.core.quarantine import QuarantineManager, QuarantineOutcome
 from mcrataway.core.scan_engine import ScanEngine
 from mcrataway.rules.updater import RuleUpdater
 
@@ -54,10 +55,110 @@ def test_concurrent_scan_files(tmp_path: Path) -> None:
     assert str(f2) in paths
 
 
+def test_quarantine_distinguishes_failure_from_harmless_outcomes(tmp_path: Path) -> None:
+    """QuarantineManager.quarantine() must not collapse a real failure
+    (copy error) and a harmless outcome (already quarantined, source
+    missing) into the same indistinguishable None — see
+    core/quarantine.py's QuarantineOutcome. A caller (e.g.
+    ScanEngine.maybe_quarantine) that only checks "is there a
+    manifest" cannot tell a genuinely failed isolation from a
+    no-op, which previously meant a MALICIOUS verdict with a failed
+    quarantine attempt produced no visible warning at all.
+    """
+    qm = QuarantineManager(quarantine_dir=tmp_path / "quarantine")
+
+    class FakeResult:
+        file_hash = "b" * 64
+        verdict = "MALICIOUS"
+        confidence = 1.0
+        findings: list = []
+
+    # Source missing.
+    missing = tmp_path / "does_not_exist.jar"
+    result = qm.quarantine(missing, FakeResult())
+    assert result.outcome is QuarantineOutcome.SOURCE_MISSING
+    assert not result
+
+    # Successful quarantine.
+    sample = tmp_path / "sample.jar"
+    sample.write_bytes(b"dummy")
+    result = qm.quarantine(sample, FakeResult())
+    assert result.outcome is QuarantineOutcome.SUCCESS
+    assert result
+    assert result.manifest is not None
+
+    # Re-quarantining the same hash is a no-op, not a failure.
+    sample2 = tmp_path / "sample2.jar"
+    sample2.write_bytes(b"dummy")
+    result = qm.quarantine(sample2, FakeResult())
+    assert result.outcome is QuarantineOutcome.ALREADY_QUARANTINED
+    assert not result
+
+    # A genuine failure (copy raises) must be reported as FAILED, not
+    # silently swallowed as if nothing happened.
+    sample3 = tmp_path / "sample3.jar"
+    sample3.write_bytes(b"dummy")
+
+    class OtherResult:
+        file_hash = "c" * 64
+        verdict = "MALICIOUS"
+        confidence = 1.0
+        findings: list = []
+
+    with patch("shutil.copy2", side_effect=OSError("disk full")):
+        result = qm.quarantine(sample3, OtherResult())
+    assert result.outcome is QuarantineOutcome.FAILED
+    assert not result
+    assert sample3.exists(), "original file must survive a failed quarantine attempt"
+
+
+def test_scan_engine_surfaces_failed_quarantine_in_metadata(tmp_path: Path) -> None:
+    """A quarantine failure during a scan must be visible on the
+    ArtifactResult, not silently dropped — this is what CLI/server
+    reporting reads to warn the user that a MALICIOUS file is still on
+    disk despite the verdict."""
+    test_file = tmp_path / "malicious.jar"
+    test_file.write_bytes(b"dummy data")
+
+    quarantine = QuarantineManager(quarantine_dir=tmp_path / "quarantine")
+    engine = ScanEngine(quarantine=quarantine)
+
+    class FakeResult:
+        verdict = Verdict.MALICIOUS
+        file_hash = "d" * 64
+        confidence = 1.0
+        findings: list = []
+        metadata: dict = {}
+
+    fake_result = FakeResult()
+    with patch("shutil.copy2", side_effect=OSError("disk full")):
+        engine.maybe_quarantine(test_file, fake_result)  # type: ignore[arg-type]
+
+    assert fake_result.metadata.get("quarantine_failed") is True
+    assert test_file.exists()
+
+
 def test_user_config_whitelisting() -> None:
     cfg = UserConfig(whitelisted_hashes=["abc123hash"], excluded_paths=["/tmp/*"])
     assert "abc123hash" in cfg.whitelisted_hashes
     assert "/tmp/*" in cfg.excluded_paths
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX file permission bits are not meaningful on Windows",
+)
+def test_user_config_save_sets_restrictive_permissions(tmp_path: Path) -> None:
+    """config.yaml can contain scanned paths and quarantine locations
+    — on a multi-user system these should not be world/group readable,
+    matching the treatment TOKEN_FILE already gets in server/auth.py.
+    """
+    cfg = UserConfig(custom_roots=["/home/someuser/mods"])
+    config_path = tmp_path / "config.yaml"
+    cfg.save(config_path)
+
+    mode = config_path.stat().st_mode & 0o777
+    assert mode == 0o600
 
 
 def test_rule_updater_rejects_unsigned_pack(tmp_path: Path) -> None:
@@ -109,6 +210,55 @@ def test_rule_updater_accepts_validly_signed_pack(tmp_path: Path) -> None:
         assert files[0].exists()
         assert files[0].read_bytes() == content
         assert files[0].with_name(files[0].name + ".sig").exists()
+
+
+def test_rule_updater_rejects_downgrade_of_versioned_pack(tmp_path: Path) -> None:
+    """A validly-signed pack must still be rejected if its pack_version
+    is not newer than the last accepted version for that URL — a
+    signature only proves who published a file, not that it's the
+    most recent one. Without this, an attacker in control of the
+    download channel (compromised mirror, repo takeover) could replay
+    an old, validly-signed pack that lacks detection for a
+    since-added malware family.
+    """
+    from mcrataway.rules import signing
+
+    priv_b64, pub_b64 = signing.generate_keypair()
+    old_content = b"pack_id: test_pack\npack_version: '2026-01-01'\nrules: []"
+    new_content = b"pack_id: test_pack\npack_version: '2026-06-01'\nrules: []"
+    old_sig = signing.sign_data(old_content, priv_b64)
+    new_sig = signing.sign_data(new_content, priv_b64)
+
+    updater = RuleUpdater(target_dir=tmp_path)
+
+    def make_response(data: bytes) -> MagicMock:
+        resp = MagicMock()
+        resp.status = 200
+        resp.read.return_value = data
+        return resp
+
+    with patch.object(signing, "TRUSTED_PUBLIC_KEYS_B64", (pub_b64,)), patch(
+        "urllib.request.urlopen"
+    ) as mock_urlopen:
+        # First fetch: accept the newer pack.
+        mock_urlopen.return_value.__enter__.side_effect = [
+            make_response(new_content),
+            make_response(new_sig.encode("ascii")),
+        ]
+        files = updater.fetch_remote_rules(urls=["http://example.com/rules.yaml"])
+        assert len(files) == 1
+        assert files[0].read_bytes() == new_content
+
+        # Second fetch: an older, but still validly-signed pack is
+        # served on the same URL (rollback attack) — must be rejected,
+        # and the previously-installed newer content must survive.
+        mock_urlopen.return_value.__enter__.side_effect = [
+            make_response(old_content),
+            make_response(old_sig.encode("ascii")),
+        ]
+        files = updater.fetch_remote_rules(urls=["http://example.com/rules.yaml"])
+        assert len(files) == 0
+        assert (tmp_path / "remote_pack_1.yaml").read_bytes() == new_content
 
 
 @pytest.mark.skipif(

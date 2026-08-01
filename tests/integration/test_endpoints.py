@@ -57,6 +57,29 @@ async def test_system_config(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_whitelist_hash_accepts_valid_sha256(client: AsyncClient):
+    valid_hash = "a" * 64
+    resp = await client.post("/system/whitelist", json={"sha256": valid_hash})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert valid_hash in data["whitelisted_hashes"]
+
+    # Idempotent: whitelisting the same hash again must not duplicate it.
+    resp = await client.post("/system/whitelist", json={"sha256": valid_hash})
+    data = resp.json()
+    assert data["whitelisted_hashes"].count(valid_hash) == 1
+
+
+@pytest.mark.asyncio
+async def test_whitelist_hash_rejects_invalid_input(client: AsyncClient):
+    resp = await client.post("/system/whitelist", json={"sha256": "../../etc/passwd"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is False
+
+
+@pytest.mark.asyncio
 async def test_rules(client: AsyncClient):
     resp = await client.get("/rules/")
     assert resp.status_code == 200

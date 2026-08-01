@@ -28,12 +28,20 @@ def generalize(
     if len(per_sample_candidates) == 1:
         return list(per_sample_candidates[0])
 
-    merged: dict[str, CandidateFeature] = {}
+    # Keyed by (value, kind), not value alone: two samples can expose
+    # the same underlying string through different pattern kinds (e.g.
+    # one sample has it in the plain constant pool as a "literal",
+    # another only recovers it as a "hex" pattern from an obfuscated
+    # byte sequence). Merging those into a single CandidateFeature
+    # would silently drop one kind and could propose a pattern that
+    # cannot match the samples that only exhibited the other kind.
+    merged: dict[tuple[str, str], CandidateFeature] = {}
     for sample_candidates in per_sample_candidates:
         for cand in sample_candidates:
-            existing = merged.get(cand.value)
+            key = (cand.value, cand.kind)
+            existing = merged.get(key)
             if existing is None:
-                merged[cand.value] = CandidateFeature(
+                merged[key] = CandidateFeature(
                     kind=cand.kind,
                     value=cand.value,
                     source=cand.source,

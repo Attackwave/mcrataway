@@ -7,6 +7,7 @@ Catches:
 """
 
 import re
+from urllib.parse import urlparse
 
 from mcrataway.constants import Severity
 from mcrataway.core.evidence import Evidence
@@ -109,17 +110,33 @@ class D02NetworkIO(Detector):
 
     @staticmethod
     def _is_legitimate_url(url: str) -> bool:
-        """Filter out obviously legitimate URLs (Maven, etc.)."""
-        legitimate = [
+        """Filter out obviously legitimate URLs (Maven, etc.).
+
+        Compares against the URL's actual hostname (exact match or a
+        proper subdomain), not a substring of the whole URL — the
+        previous substring check (``host in url.lower()``) let a C2
+        URL like ``http://evil.com/github.com/beacon`` or
+        ``https://github.com.attacker.net`` pass as "legitimate" simply
+        because the text "github.com" appeared somewhere in it.
+        """
+        legitimate = {
             "maven.apache.org",
             "repo1.maven.org",
             "central.sonatype.org",
-            "github.com/",
+            "github.com",
+            "raw.githubusercontent.com",
             "jitpack.io",
             "minecraft.net",
             "mojang.com",
             "fabricmc.net",
             "minecraftforge.net",
             "files.minecraftforge.net",
-        ]
-        return any(host in url.lower() for host in legitimate)
+        }
+        hostname = urlparse(url).hostname
+        if not hostname:
+            return False
+        hostname = hostname.lower()
+        return any(
+            hostname == domain or hostname.endswith(f".{domain}")
+            for domain in legitimate
+        )

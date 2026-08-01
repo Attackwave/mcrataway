@@ -119,8 +119,11 @@ async def quarantine_file(
         },
     )()
     qresult = qm.quarantine(target, result)
-    manifest = str(qresult.quarantined_path) if qresult else None
-    return {"success": qresult is not None, "manifest": manifest}
+    manifest = str(qresult.manifest.quarantined_path) if qresult.manifest else None
+    response: dict[str, Any] = {"success": bool(qresult), "manifest": manifest}
+    if not qresult:
+        response["error"] = qresult.outcome.value
+    return response
 
 
 @router.post("/{sha256}/restore")

@@ -173,13 +173,33 @@ class ScanEngine:
             clear_cache()
 
     def maybe_quarantine(self, path: Path, result: ArtifactResult) -> None:
-        """Quarantine the file if its verdict and the config warrant it."""
+        """Quarantine the file if its verdict and the config warrant it.
+
+        A failed quarantine attempt (disk full, permission denied, a
+        crash between copying and removing the original — see
+        QuarantineManager.quarantine's rollback handling) previously
+        returned ``None`` with nothing checking it: the caller would
+        see a MALICIOUS verdict with no indication that the file was
+        actually *not* isolated, which is more dangerous than a loud
+        failure — the user could believe the threat was contained when
+        it was not. The outcome is now recorded on
+        ``result.metadata`` so callers (CLI, server report) can surface
+        it instead of it disappearing silently.
+        """
+        from mcrataway.core.quarantine import QuarantineOutcome
+
         is_mal = result.verdict == Verdict.MALICIOUS
         is_susp = result.verdict == Verdict.SUSPICIOUS
         do_mal = self.quarantine.do_quarantine_malicious
         do_susp = self.quarantine.do_quarantine_suspicious
         if (is_mal and do_mal) or (is_susp and do_susp):
-            self.quarantine.quarantine(path, result)
+            qresult = self.quarantine.quarantine(path, result)
+            if qresult.outcome is QuarantineOutcome.FAILED:
+                result.metadata["quarantine_failed"] = True
+            elif qresult.outcome is QuarantineOutcome.SUCCESS:
+                result.metadata["quarantined"] = True
+            # ALREADY_QUARANTINED / SOURCE_MISSING are not failures —
+            # nothing to surface for either.
 
     def _scan_single(self, path: Path, *, keep_evidence_index: bool = False) -> ArtifactResult:
         """Scan a single file."""

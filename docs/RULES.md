@@ -94,6 +94,35 @@ success. On failure (missing signature, invalid signature, untrusted
 key) the previously installed version — if any — is left untouched;
 the fetch is logged as a warning, not treated as fatal.
 
+### Downgrade/Rollback Protection
+
+A signature only proves *who* published a file, not that it's the
+*most recent* one — an attacker in control of the download channel
+(a compromised mirror, or a repository takeover) could otherwise
+replay an old, validly-signed pack that predates detection for a
+since-added malware family.
+
+To defend against this, a pack can declare an optional top-level
+`pack_version` field:
+
+```yaml
+pack_id: "my_pack"
+pack_version: "2026-08-01"  # ISO-8601 date, or a zero-padded integer
+description: "..."
+rules: [...]
+```
+
+`RuleUpdater` remembers the last accepted `pack_version` per source
+URL (in `~/.mcrataway/rules/.pack_versions.json`) and rejects an
+update whose version is not strictly newer, even if its signature is
+valid. Versions are compared as plain strings, so use an ISO-8601
+date or a zero-padded integer (`"0007"`, not `"7"`) — an unpadded
+integer does not sort correctly once it reaches double digits.
+
+Packs without a `pack_version` field are accepted as before, with no
+downgrade protection — this is a best-effort defense on top of
+signing, not a hard requirement of the pack format.
+
 ## Generating Rule Proposals
 
 `mcrataway rulegen` analyzes a directory of malware samples (or a

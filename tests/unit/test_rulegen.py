@@ -158,6 +158,26 @@ def test_generalize_empty_input():
     assert generalize([]) == []
 
 
+def test_generalize_does_not_collapse_different_kinds_of_same_value():
+    """Two samples can expose the same underlying string through
+    different pattern kinds (e.g. one has it plainly in the constant
+    pool as 'literal', another only recovers it as a 'hex' pattern
+    from an obfuscated byte sequence). Merging purely by value would
+    silently drop one kind, potentially proposing a pattern that
+    cannot match the samples that only exhibited the other kind."""
+    shared_value = "deadbeef"
+    sample_a = [
+        CandidateFeature(kind="literal", value=shared_value, source="constant_pool", sample_hashes={"hash_a"}),
+    ]
+    sample_b = [
+        CandidateFeature(kind="hex", value=shared_value, source="reconstructed_string", sample_hashes={"hash_b"}),
+    ]
+
+    result = generalize([sample_a, sample_b], min_sample_fraction=0.5)
+    kinds_for_value = {c.kind for c in result if c.value == shared_value}
+    assert kinds_for_value == {"literal", "hex"}
+
+
 # --- rulegen/propose.py ---------------------------------------------------
 
 

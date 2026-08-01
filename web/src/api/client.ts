@@ -139,6 +139,15 @@ export async function restoreQuarantined(sha256: string): Promise<{ success: boo
   return request(`/quarantine/${sha256}`, { method: 'DELETE' })
 }
 
+export async function whitelistHash(
+  sha256: string,
+): Promise<{ success: boolean; error?: string; whitelisted_hashes?: string[] }> {
+  return request('/system/whitelist', {
+    method: 'POST',
+    body: JSON.stringify({ sha256 }),
+  })
+}
+
 export function connectJobStream(jobId: string): WebSocket {
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const token = getAuthToken()
