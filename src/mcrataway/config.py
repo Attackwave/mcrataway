@@ -27,6 +27,8 @@ class UserConfig:
         disabled_rules: list[str] | None = None,
         quarantine_dir: str | None = None,
         history_max_entries: int = 50,
+        date_format: str = "YYYY-MM-DD",
+        time_format: str = "24h",
     ) -> None:
         self.custom_roots = custom_roots or []
         self.max_workers = max_workers
@@ -43,12 +45,19 @@ class UserConfig:
         self.disabled_rules = disabled_rules or []
         self.quarantine_dir = quarantine_dir or str(QUARANTINE_DIR)
         self.history_max_entries = history_max_entries
+        self.date_format = date_format
+        self.time_format = time_format
 
     @classmethod
     def load(cls, path: Path | None = None) -> "UserConfig":
         path = path or CONFIG_FILE
         if not path.exists():
-            return cls()
+            default_cfg = cls()
+            try:
+                default_cfg.save(path)
+            except Exception:
+                pass
+            return default_cfg
         try:
             with open(path) as f:
                 data = yaml.safe_load(f) or {}
@@ -71,6 +80,8 @@ class UserConfig:
                 "disabled_rules",
                 "quarantine_dir",
                 "history_max_entries",
+                "date_format",
+                "time_format",
             }
             filtered = {k: v for k, v in data.items() if k in valid_keys}
             return cls(**filtered)

@@ -32,6 +32,8 @@ class ConfigUpdateModel(BaseModel):
     whitelisted_hashes: list[str] | None = None
     excluded_paths: list[str] | None = None
     disabled_rules: list[str] | None = None
+    date_format: str | None = None
+    time_format: str | None = None
 
 
 @router.get("/health")

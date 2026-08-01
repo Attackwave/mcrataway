@@ -186,13 +186,14 @@ def serve(host: str, port: int, hot_reload: bool, skip_browser: bool) -> None:
     token = ensure_token()
 
     url = f"http://{host}:{port}"
+    url_with_token = f"{url}/?token={token}"
     rich.print(f"[bold green]mcrataway[/bold green] starting at {url}")
     rich.print(
-        f"[dim]Auth token (send as X-Mcrataway-Token header, "
-        f"or ?token= for the WebSocket stream):[/dim] {token}"
+        f"[dim]Auth token (send as X-Mcrataway-Token header):[/dim] {token}"
     )
+    rich.print(f"[dim]Web GUI Access URL:[/dim] [underline]{url_with_token}[/underline]")
     if not skip_browser:
-        webbrowser.open(url)
+        webbrowser.open(url_with_token)
 
     from mcrataway.server.app import create_app
 

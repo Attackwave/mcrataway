@@ -42,6 +42,27 @@ class HtmlWriter:
     def write(report: ScanReport, path: Path) -> None:
         """Write a scan report as self-contained HTML."""
         e = html.escape
+        formatted_ts = report.timestamp
+        try:
+            from datetime import datetime
+            from mcrataway.config import UserConfig
+            config = UserConfig.load()
+            dt = datetime.fromisoformat(report.timestamp.replace("Z", "+00:00"))
+            
+            date_fmt = "%Y-%m-%d"
+            if config.date_format == "DD.MM.YYYY":
+                date_fmt = "%d.%m.%Y"
+            elif config.date_format == "MM/DD/YYYY":
+                date_fmt = "%m/%d/%Y"
+                
+            time_fmt = "%H:%M:%S"
+            if config.time_format == "12h":
+                time_fmt = "%I:%M:%S %p"
+                
+            formatted_ts = dt.strftime(f"{date_fmt} {time_fmt}")
+        except Exception:
+            pass
+
         html_parts: list[str] = []
         html_parts.append(f"""<!DOCTYPE html>
 <html lang="en">
@@ -54,7 +75,7 @@ class HtmlWriter:
 <body>
 <h1>mcrataway Scan Report</h1>
 <div class="meta">
-  ID: {e(report.scan_id)} | {e(report.timestamp)} | {e(report.hostname)} | {e(report.os_name)}
+  ID: {e(report.scan_id)} | {e(formatted_ts)} | {e(report.hostname)} | {e(report.os_name)}
 </div>
 
 <div class="summary">

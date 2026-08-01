@@ -1,19 +1,2567 @@
-<!doctype html>
-<html lang="de" class="dark">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>mcrataway — Minecraft RAT Malware Scanner</title>
-    <!-- Google Fonts: Outfit & JetBrains Mono -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <link rel="stylesheet" href="/static/css/style.css">
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/static/js/app.js"></script>
-  </body>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>mcRATAway // Security Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
+  <style>
+    /* DESIGN SYSTEM: MODERN DEVELOPER CONTROL PANEL (VERCEL/LINEAR STYLE) */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+    :root {
+      --bg-main: #060913;
+      --bg-sidebar: #0b0f19;
+      --bg-card: rgba(17, 24, 39, 0.55);
+      --bg-input: #0f1322;
+      --border-color: rgba(255, 255, 255, 0.06);
+      --border-hover: rgba(255, 255, 255, 0.12);
+      
+      --accent: #6366f1;
+      --accent-hover: #4f46e5;
+      --accent-glow: rgba(99, 102, 241, 0.15);
+      
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.1);
+      --success-border: rgba(16, 185, 129, 0.2);
+      
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.1);
+      --warning-border: rgba(245, 158, 11, 0.2);
+      
+      --danger: #f43f5e;
+      --danger-bg: rgba(244, 63, 94, 0.1);
+      --danger-border: rgba(244, 63, 94, 0.2);
+      
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-dim: #64748b;
+      
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-main);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      line-height: 1.5;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* GLOBAL APP CONTAINER */
+    .app-layout {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* SIDEBAR NAVIGATION */
+    aside {
+      width: 260px;
+      background-color: var(--bg-sidebar);
+      border-right: 1px solid var(--border-color);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .brand-block {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 18px;
+      margin-bottom: 40px;
+    }
+
+    .brand-logo {
+      width: 100%;
+      max-width: 212px;
+      height: auto;
+      aspect-ratio: 1 / 1;
+      border-radius: 20px;
+      object-fit: cover;
+      box-shadow: 0 16px 32px rgba(0, 0, 0, 0.6);
+    }
+
+    .brand-meta {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      line-height: 1.3;
+    }
+
+    .brand-name {
+      font-weight: 700;
+      font-size: 26px;
+      color: var(--text-primary);
+      letter-spacing: -0.04em;
+    }
+
+    .brand-sub {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-top: 4px;
+    }
+
+    /* NAVIGATION BUTTONS */
+    nav {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .nav-btn {
+      width: 100%;
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-weight: 500;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-align: left;
+      transition: all 0.15s ease;
+    }
+
+    .nav-btn:hover {
+      color: var(--text-primary);
+      background-color: rgba(255, 255, 255, 0.03);
+    }
+
+    .nav-btn.active {
+      color: var(--text-primary);
+      background-color: rgba(99, 102, 241, 0.1);
+      box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.2);
+    }
+
+    .nav-btn svg {
+      transition: transform 0.15s ease;
+      color: var(--text-dim);
+    }
+
+    .nav-btn:hover svg, .nav-btn.active svg {
+      color: var(--text-primary);
+    }
+
+    .nav-btn.active svg {
+      color: var(--accent);
+    }
+
+    /* SIDEBAR FOOTER & SYSTEM HEALTH */
+    .sidebar-footer {
+      border-top: 1px solid var(--border-color);
+      padding-top: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .health-badge {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background-color: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-color);
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+    }
+
+    .health-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 500;
+    }
+
+    .status-led {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    .status-led.offline {
+      background-color: var(--danger);
+      box-shadow: 0 0 8px var(--danger);
+    }
+
+    .btn-ping {
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      transition: color 0.15s;
+    }
+
+    .btn-ping:hover {
+      color: var(--text-primary);
+    }
+
+    .system-meta {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-align: center;
+    }
+
+    /* MAIN VIEW CONTAINER */
+    .main-viewport {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      position: relative;
+    }
+
+    /* GLOBAL SCREEN HEADER */
+    .view-header {
+      height: 64px;
+      border-bottom: 1px solid var(--border-color);
+      padding: 0 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background-color: rgba(9, 13, 22, 0.4);
+      backdrop-filter: blur(8px);
+      z-index: 50;
+      flex-shrink: 0;
+    }
+
+    .view-title {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--text-primary);
+    }
+
+    .clock-widget {
+      font-size: 12px;
+      font-family: var(--font-mono);
+      color: var(--text-secondary);
+    }
+
+    /* SCREEN VIEWPORT WRAPPER */
+    .screen-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 32px;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tab-content {
+      display: none;
+      height: 100%;
+      width: 100%;
+    }
+
+    .tab-content.active {
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* MODERN GLASS CARD */
+    .card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      backdrop-filter: blur(12px);
+      transition: border-color 0.15s ease;
+    }
+
+    .card:hover {
+      border-color: var(--border-hover);
+    }
+
+    .card-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* INPUTS & SELECTS */
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .form-control {
+      width: 100%;
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13px;
+      transition: border-color 0.15s;
+    }
+
+    .form-control:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    /* SWITCH TOGGLE */
+    .switch-group {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px;
+      border-radius: 8px;
+      background-color: rgba(255, 255, 255, 0.01);
+      border: 1px solid var(--border-color);
+      margin-bottom: 8px;
+    }
+
+    .switch-label {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .switch-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .switch-desc {
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    .switch-control {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 22px;
+      cursor: pointer;
+    }
+
+    .switch-control input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-color);
+      transition: .2s;
+      border-radius: 22px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background-color: var(--text-secondary);
+      transition: .2s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(22px);
+      background-color: white;
+    }
+
+    /* BUTTONS */
+    .btn {
+      background-color: var(--accent);
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.15s;
+    }
+
+    .btn:hover {
+      background-color: var(--accent-hover);
+      box-shadow: 0 0 16px var(--accent-glow);
+    }
+
+    .btn.secondary {
+      background-color: rgba(255, 255, 255, 0.04);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+    }
+
+    .btn.secondary:hover {
+      background-color: rgba(255, 255, 255, 0.08);
+      border-color: var(--border-hover);
+    }
+
+    .btn.danger {
+      background-color: var(--danger-bg);
+      color: var(--danger);
+      border: 1px solid var(--danger-border);
+    }
+
+    .btn.danger:hover {
+      background-color: var(--danger);
+      color: white;
+      box-shadow: 0 0 16px var(--danger-glow);
+    }
+
+    .btn.sm {
+      padding: 6px 12px;
+      font-size: 11px;
+      border-radius: 6px;
+    }
+
+    /* SPLIT-GRID DESKTOP LAYOUT */
+    .layout-split {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 24px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .split-list {
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    .split-detail {
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      min-height: 0;
+      border-left: 1px solid var(--border-color);
+      padding-left: 24px;
+    }
+
+    /* STATS DASHBOARD HERO */
+    .dashboard-hud {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+      flex-shrink: 0;
+    }
+
+    .hud-box {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px 20px;
+      text-align: left;
+    }
+
+    .hud-box-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .hud-box-val {
+      font-size: 26px;
+      font-weight: 700;
+      margin-top: 6px;
+      font-family: var(--font-mono);
+      letter-spacing: -0.02em;
+    }
+
+    .hud-box.malicious {
+      border-color: var(--danger-border);
+      background-color: var(--danger-bg);
+      color: var(--danger);
+    }
+
+    .hud-box.suspicious {
+      border-color: var(--warning-border);
+      background-color: var(--warning-bg);
+      color: var(--warning);
+    }
+
+    /* LIST VIEWS */
+    .item-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .item-row {
+      background-color: rgba(255, 255, 255, 0.01);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 12px 16px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.15s;
+    }
+
+    .item-row:hover, .item-row.selected {
+      border-color: var(--border-hover);
+      background-color: rgba(255, 255, 255, 0.03);
+    }
+
+    .item-row.selected {
+      border-color: var(--accent);
+      background-color: rgba(99, 102, 241, 0.04);
+    }
+
+    /* RADAR CANVAS & PROGRESS */
+    .radar-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      flex: 1;
+    }
+
+    .progress-bar-wrapper {
+      width: 100%;
+      height: 6px;
+      background-color: var(--bg-input);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+
+    .progress-bar-fill {
+      background-color: var(--accent);
+      height: 100%;
+      width: 0%;
+      transition: width 0.3s;
+    }
+
+    /* EXCLUSIONS TAGS */
+    .tags-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tag {
+      background-color: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tag-remove {
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    .tag-remove:hover {
+      color: var(--danger);
+    }
+
+    /* BADGES */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      border: 1px solid;
+    }
+
+    .badge.malicious {
+      background-color: var(--danger-bg);
+      border-color: var(--danger-border);
+      color: var(--danger);
+    }
+
+    .badge.suspicious {
+      background-color: var(--warning-bg);
+      border-color: var(--warning-border);
+      color: var(--warning);
+    }
+
+    .badge.clean {
+      background-color: var(--success-bg);
+      border-color: var(--success-border);
+      color: var(--success);
+    }
+
+    /* DECOMPILE CODE BLOCKS */
+    pre.code-block {
+      background-color: #0b0f19;
+      border: 1px solid var(--border-color);
+      padding: 12px;
+      border-radius: 8px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #38bdf8;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* LIVE TERMINAL TICKER */
+    .ticker-console {
+      background-color: #070913;
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #38bdf8;
+      height: 100%;
+      min-height: 140px;
+      overflow-y: auto;
+      box-shadow: inset 0 0 10px black;
+    }
+
+    /* CUSTOM FILE EXPLORER MODAL */
+    .explorer-modal {
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      background-color: #0b111e;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 380px;
+    }
+
+    .explorer-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background-color: rgba(255, 255, 255, 0.01);
+    }
+
+    .explorer-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+    }
+
+    .explorer-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background-color 0.15s;
+    }
+
+    .explorer-row:hover {
+      background-color: rgba(255, 255, 255, 0.03);
+    }
+
+
+
+    /* SCROLLBARS DESIGN */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+  </style>
+</head>
+<body>
+  
+  <div class="app-layout">
+    
+    <!-- LEFT SIDEBAR -->
+    <aside>
+      <div class="space-group">
+        <div class="brand-block">
+          <img src="/static/images/logo.png" alt="Logo" class="brand-logo" onerror="this.style.display='none'" />
+          <div class="brand-meta" style="width: 100%;">
+            <span class="brand-sub" style="margin-top: 0; display: block; margin-bottom: 4px;">Advanced Scan Engine</span>
+            <span class="system-meta" style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 10px; font-weight: 700; font-size: 11px; display: inline-block;">v<span id="core-ver">1.0.0</span></span>
+          </div>
+        </div>
+
+        <!-- Sidebar Navigation links -->
+        <nav id="sidebar-nav">
+          <button class="nav-btn active" data-tab="scan">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <span>Scan Engine</span>
+          </button>
+          <button class="nav-btn" data-tab="findings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            <span>Threat Findings</span>
+          </button>
+          <button class="nav-btn" data-tab="history">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <span>Audit History</span>
+          </button>
+          <button class="nav-btn" data-tab="rules">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="9"></line><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="15" y2="17"></line></svg>
+            <span>Rule Database</span>
+          </button>
+          <button class="nav-btn" data-tab="quarantine">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            <span>Quarantine Vault</span>
+          </button>
+          <button class="nav-btn" data-tab="terminal">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+            <span>Command Terminal</span>
+          </button>
+          <button class="nav-btn" data-tab="settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            <span>System Config</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Health widget -->
+      <div class="sidebar-footer">
+        <div class="health-badge">
+          <div class="health-status">
+            <span class="status-led" id="health-led"></span>
+            <span id="health-text" style="font-weight: 600;">Core Connected</span>
+          </div>
+          <button class="btn-ping" id="btn-ping-core" title="Ping Core API">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+          </button>
+        </div>
+        <p class="system-meta">mcRATAway Security Center</p>
+      </div>
+    </aside>
+
+    <!-- RIGHT MAIN PANEL -->
+    <div class="main-viewport">
+      
+      <!-- Top header bar -->
+      <header class="view-header">
+        <div class="view-title" id="active-tab-title">Scan Engine</div>
+        <div class="clock-widget" id="system-time">TIME: 2026-08-01 20:00:00</div>
+      </header>
+
+      <div class="screen-content" id="viewport-screen" style="position: relative;">
+
+        <!-- Folder Selector Modal panel (Global Overlay) -->
+        <div class="explorer-modal" id="folder-picker-panel" style="display: none; position: absolute; top: 32px; left: 32px; right: 32px; z-index: 100; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7); height: 380px;">
+          <div class="explorer-header">
+            <span style="font-weight: 600; font-size: 13px;">Directory Picker</span>
+            <button class="btn secondary sm" style="padding: 2px 8px;" id="btn-close-browser">Close</button>
+          </div>
+          <div id="explorer-breadcrumbs" style="font-size: 11px; padding: 10px 20px; background-color: rgba(255, 255, 255, 0.02); border-bottom: 1px solid var(--border-color); font-family: var(--font-mono); color: var(--text-secondary); word-break: break-all;">
+            /
+          </div>
+          <div class="explorer-content" id="explorer-tree">
+            <!-- directories tree load here -->
+          </div>
+          <div style="padding: 12px 20px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; background-color: rgba(255, 255, 255, 0.01);">
+            <button class="btn sm" id="btn-select-current-dir">Select Current Folder</button>
+          </div>
+        </div>
+
+        <!-- ================== SCANNER SCREEN (F1) ================== -->
+        <div class="tab-content active" id="tab-scan">
+          
+          <div class="dashboard-hud" id="active-metrics-hud">
+            <div class="hud-box">
+              <span class="hud-box-label">Files Audited</span>
+              <div class="hud-box-val" id="audit-count-total">0</div>
+            </div>
+            <div class="hud-box malicious">
+              <span class="hud-box-label">Critical Malware</span>
+              <div class="hud-box-val" id="audit-count-mal">0</div>
+            </div>
+            <div class="hud-box suspicious">
+              <span class="hud-box-label">Suspicious Items</span>
+              <div class="hud-box-val" id="audit-count-sus">0</div>
+            </div>
+            <div class="hud-box">
+              <span class="hud-box-label">Safe & Whitelisted</span>
+              <div class="hud-box-val" id="audit-count-clean" style="color: var(--success);">0</div>
+            </div>
+          </div>
+
+          <div class="layout-split">
+            
+            <div class="split-left" style="display: flex; flex-direction: column; gap: 16px;">
+              <div class="card">
+                <div class="card-title">Target Directories</div>
+                <div id="roots-list" style="margin-bottom: 16px; display: flex; flex-direction: column; gap: 8px;">
+                  <!-- Checkboxes load here -->
+                </div>
+                <button class="btn secondary sm" id="btn-browse-target">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                  Browse Target Folder
+                </button>
+              </div>
+
+              <div class="card">
+                <div class="card-title">Scan Configurations</div>
+                <div class="switch-group">
+                  <div class="switch-label">
+                    <span class="switch-title">Decompress Archives</span>
+                    <span class="switch-desc">Recursively search nested JAR files</span>
+                  </div>
+                  <label class="switch-control">
+                    <input type="checkbox" id="scan-nested-chk" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="switch-group">
+                  <div class="switch-label">
+                    <span class="switch-title">Analyze Config Scripts</span>
+                    <span class="switch-desc">Check scripts like Lua or Python inside mods</span>
+                  </div>
+                  <label class="switch-control">
+                    <input type="checkbox" id="scan-scripts-chk">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="switch-group">
+                  <div class="switch-label">
+                    <span class="switch-title">Auto-Quarantine Threats</span>
+                    <span class="switch-desc">Instantly quarantine critical malware items</span>
+                  </div>
+                  <label class="switch-control">
+                    <input type="checkbox" id="auto-quar-chk">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <button class="btn" id="btn-start-audit" style="width: 100%; padding: 14px; font-size: 13px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                Initialize Security Audit
+              </button>
+            </div>
+
+            <div class="split-right" style="display: flex; flex-direction: column; gap: 16px; border-left: 1px solid var(--border-color); padding-left: 24px; min-height: 420px;">
+              
+              <!-- Top: Scan Progress & Status Box -->
+              <div class="card" style="margin: 0; padding: 16px; background: rgba(0, 0, 0, 0.15); display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--border-color); border-radius: 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span class="card-title" style="margin: 0; font-size: 13px; text-transform: uppercase;">Scan Execution Progress</span>
+                  <div style="font-weight: 600; font-size: 13px;">
+                    Status: <span id="audit-status" style="color: var(--text-dim); transition: color 0.2s;">IDLE</span>
+                  </div>
+                </div>
+
+                <!-- Progress Bar Container -->
+                <div id="audit-progress-wrapper" style="width: 100%; margin-top: 4px;">
+                  <div class="progress-bar-wrapper" style="background: rgba(255, 255, 255, 0.05); height: 10px; border-radius: 5px; overflow: hidden; border: 1px solid var(--border-color);">
+                    <div class="progress-bar-fill" id="audit-progress-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent) 0%, #38bdf8 100%); transition: width 0.1s ease;"></div>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-top: 6px;">
+                    <span id="audit-progress-text">0% Completed</span>
+                    <span id="audit-progress-files">0 / 0 files</span>
+                  </div>
+                </div>
+
+                <!-- Active file label (shows what is being scanned right now) -->
+                <div id="audit-active-file-box" style="font-size: 11px; font-family: var(--font-mono); color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 8px;">
+                  Scanning: <span id="audit-active-file-path" style="color: var(--text-secondary);">Idle (Waiting for run)</span>
+                </div>
+              </div>
+
+              <!-- Bottom: Expanded Telemetry Logs -->
+              <div style="flex: 1; display: flex; flex-direction: column; gap: 10px; min-height: 0;">
+                <div class="card-title" style="margin-bottom: 0;">Real-Time Scanner Telemetry Logs</div>
+                <div class="ticker-console" id="scanner-ticker-box" style="flex: 1; margin-bottom: 0; min-height: 250px;">
+                  [SYSTEM READY FOR SECURITY RUNS]
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ================== FINDINGS SCREEN (F2) ================== -->
+        <div class="tab-content" id="tab-findings">
+          <div class="layout-split">
+            
+            <div class="split-left">
+              <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px;">
+                <input type="text" id="findings-search" class="form-control" placeholder="Search paths, hashes, verdicts...">
+                <select id="findings-verdict-filter" class="form-control">
+                  <option value="">All Threat Classes</option>
+                  <option value="MALICIOUS">Malicious Only</option>
+                  <option value="SUSPICIOUS">Suspicious Only</option>
+                </select>
+              </div>
+
+              <ul class="item-list" id="findings-list-box">
+                <!-- findings items render here -->
+              </ul>
+            </div>
+
+            <div class="split-detail" id="findings-detail-pane">
+              <div id="findings-detail-empty" style="text-align: center; margin-top: 100px; color: var(--text-dim);">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 12px; opacity: 0.5;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                <p>Select a flagged file container from the list to review bytecode security telemetry</p>
+              </div>
+
+              <div id="findings-detail-content" style="display: none; flex-direction: column; gap: 16px; width: 100%;">
+                
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+                  <div>
+                    <h2 style="font-size: 18px; font-weight: 700; color: white;" id="find-file-name">file_base_name.jar</h2>
+                    <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; font-family: var(--font-mono); word-break: break-all;" id="find-file-path">/absolute/path/to/mod.jar</p>
+                  </div>
+                  <span class="badge" id="find-verdict-badge">MALICIOUS</span>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                  <div class="card" style="margin: 0; padding: 14px 18px;">
+                    <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase;">Confidence Level</div>
+                    <div style="font-size: 18px; font-weight: 700; font-family: var(--font-mono); margin-top: 4px;" id="find-confidence">0%</div>
+                  </div>
+                  <div class="card" style="margin: 0; padding: 14px 18px; display: flex; flex-direction: column; justify-content: center; gap: 2px;">
+                    <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase;">SHA-256 Signature Hash</div>
+                    <div style="display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); overflow: hidden;">
+                      <span id="find-file-hash" style="text-overflow: ellipsis; overflow: hidden; white-space: nowrap; flex: 1;">hash</span>
+                      <button class="btn secondary sm" style="padding: 2px 6px; shrink: 0;" id="btn-copy-hash" title="Copy Hash">Copy</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn secondary sm" id="btn-action-whitelist">Mark Safe / Whitelist</button>
+                  <button class="btn danger sm" id="btn-action-quarantine">Isolate & Quarantine</button>
+                </div>
+
+                <div style="border-top: 1px solid var(--border-color); padding-top: 16px;">
+                  <h3 style="font-size: 13px; font-weight: 600; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 12px;">Matched Security Signatures</h3>
+                  <div id="find-indicators-box" style="display: flex; flex-direction: column; gap: 12px;">
+                    <!-- Indicators load here -->
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ================== HISTORY SCREEN (F3) ================== -->
+        <div class="tab-content" id="tab-history">
+          <div class="layout-split">
+            
+            <div class="split-left">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <div class="card-title" style="margin: 0;">Completed Audit Sessions</div>
+                <button class="btn danger sm" id="btn-purge-history" style="font-size: 10px; padding: 2px 8px; display: none;">Clear History</button>
+              </div>
+              <ul class="item-list" id="history-list-box">
+                <!-- history items load here -->
+              </ul>
+            </div>
+
+            <div class="split-detail" id="history-report-pane">
+              <div id="history-report-empty" style="text-align: center; margin-top: 100px; color: var(--text-dim);">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 12px; opacity: 0.5;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                <p>Select an audit session to decompress structural findings records</p>
+              </div>
+
+              <div id="history-report-content" style="display: none; flex-direction: column; gap: 16px; width: 100%;">
+                
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+                  <div>
+                    <h3 style="font-size: 14px; font-weight: 600; color: white;">Audit Report</h3>
+                    <p style="font-size: 11px; color: var(--text-dim); font-family: var(--font-mono); margin-top: 2px;" id="hist-report-id">report_id</p>
+                  </div>
+                  <span id="hist-report-time" style="font-size: 12px; color: var(--text-secondary); font-family: var(--font-mono);">time</span>
+                </div>
+
+                <div id="hist-report-stats" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; text-align: center;">
+                  <div style="border: 1.5px solid var(--border-color); padding: 8px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;" id="hist-card-total" onclick="setHistoryFilter('TOTAL')">
+                    <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">Total</div>
+                    <div style="font-size: 16px; font-weight: bold; font-family: var(--font-mono);" id="hist-stat-total">0</div>
+                  </div>
+                  <div style="border: 1.5px solid rgba(244, 63, 94, 0.2); color: var(--danger); background: var(--danger-bg); padding: 8px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;" id="hist-card-mal" onclick="setHistoryFilter('MALICIOUS')">
+                    <div style="font-size: 10px; text-transform: uppercase;">Malicious</div>
+                    <div style="font-size: 16px; font-weight: bold; font-family: var(--font-mono);" id="hist-stat-mal">0</div>
+                  </div>
+                  <div style="border: 1.5px solid rgba(245, 158, 11, 0.2); color: var(--warning); background: var(--warning-bg); padding: 8px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;" id="hist-card-sus" onclick="setHistoryFilter('SUSPICIOUS')">
+                    <div style="font-size: 10px; text-transform: uppercase;">Suspicious</div>
+                    <div style="font-size: 16px; font-weight: bold; font-family: var(--font-mono);" id="hist-stat-sus">0</div>
+                  </div>
+                  <div style="border: 1.5px solid var(--border-color); color: var(--success); padding: 8px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;" id="hist-card-clean" onclick="setHistoryFilter('CLEAN')">
+                    <div style="font-size: 10px; text-transform: uppercase; color: var(--text-dim);">Clean</div>
+                    <div style="font-size: 16px; font-weight: bold; font-family: var(--font-mono);" id="hist-stat-clean">0</div>
+                  </div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                  <span style="font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--text-secondary);">Flagged File Verdicts:</span>
+                  <input type="text" id="history-report-search" class="form-control" placeholder="Search files, paths..." style="max-width: 200px; font-size: 11px; padding: 4px 8px; height: 26px;">
+                </div>
+                <div id="hist-report-files-box" style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; max-height: 300px;">
+                  <!-- reports files items -->
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ================== RULES SCREEN (F4) ================== -->
+        <div class="tab-content" id="tab-rules">
+          
+          <div class="card" style="padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+            <div>
+              <h3 style="font-size: 14px; font-weight: 600; color: white;">Threat Intelligence Signatures</h3>
+              <p style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Sync rule packs and disable/enable structural byte detectors</p>
+            </div>
+            <button class="btn secondary sm" id="btn-sync-rules">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+              Sync Rules
+            </button>
+          </div>
+
+          <div id="rules-sync-indicator" style="display: none; padding: 12px 16px; background-color: var(--accent-glow); border: 1px solid var(--accent); border-radius: 8px; margin-bottom: 20px; font-size: 12px; color: var(--text-primary);">
+            Synchronizing threat definitions database...
+          </div>
+
+          <div id="rules-packs-container" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px;">
+            <!-- rule packs load here -->
+          </div>
+        </div>
+
+        <!-- ================== QUARANTINE SCREEN (F5) ================== -->
+        <div class="tab-content" id="tab-quarantine">
+          
+          <div class="card" style="padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
+            <div>
+              <h3 style="font-size: 14px; font-weight: 600; color: white;">Quarantine Isolation Vault</h3>
+              <p style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Threat payloads contained securely inside isolated vault directory</p>
+            </div>
+            <button class="btn danger sm" id="btn-purge-quarantine">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              Purge Vault
+            </button>
+          </div>
+
+          <div id="quarantine-purge-confirm" style="display: none; padding: 16px; background: var(--danger-bg); border: 1px solid var(--danger-border); border-radius: 10px; margin-bottom: 20px; text-align: center; font-size: 13px;">
+            Warning: This deletes all quarantined files permanently. Proceed?
+            <button class="btn danger sm" id="btn-confirm-purge" style="margin-left: 15px;">Delete All</button>
+            <button class="btn secondary sm" id="btn-cancel-purge" style="margin-left: 5px;">Cancel</button>
+          </div>
+
+          <ul class="item-list" id="quarantine-list-box" style="flex: 1; overflow-y: auto;">
+            <!-- quarantine items render here -->
+          </ul>
+        </div>
+
+        <!-- ================== TERMINAL SHELL SCREEN (F6) ================== -->
+        <div class="tab-content" id="tab-terminal" style="display: none; flex-direction: column; gap: 16px; height: 100%;">
+          <div class="card" style="padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-shrink: 0;">
+            <div>
+              <h3 style="font-size: 14px; font-weight: 600; color: white;">Interactive Command Terminal</h3>
+              <p style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Direct command prompt shell link targeting active mcRATAway core routines</p>
+            </div>
+            <button class="btn secondary sm" onclick="document.getElementById('terminal-console-box').innerHTML = ''; appendTerminal('Terminal log cleared.');">
+              Clear Screen
+            </button>
+          </div>
+
+          <div style="flex: 1; display: flex; gap: 16px; min-height: 0;">
+            <!-- Terminal Output Console -->
+            <div style="flex: 1; display: flex; flex-direction: column; background: #05070f; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.8); min-width: 0;">
+              <div id="terminal-console-box" style="flex: 1; overflow-y: auto; font-family: var(--font-mono); font-size: 12px; color: #38bdf8; line-height: 1.5; white-space: pre-wrap; word-break: break-all;">
+                <div>[MCRATAWAY CORE TERMINAL VERSION 1.0.0]</div>
+                <div>Type 'help' to print list of supported commands.</div>
+                <div>&nbsp;</div>
+              </div>
+              
+              <!-- Input Prompt -->
+              <div style="display: flex; align-items: center; gap: 8px; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 12px; margin-top: 8px; flex-shrink: 0;">
+                <span style="font-family: var(--font-mono); color: var(--accent); font-weight: 700; font-size: 12px; white-space: nowrap;">guest@mcrataway:~$</span>
+                <input type="text" id="terminal-prompt-input" autocomplete="off" class="form-control" placeholder="Enter command..." style="font-family: var(--font-mono); font-size: 12px; background: transparent; border: none; outline: none; flex: 1; color: var(--text-primary); box-shadow: none; height: 20px; padding: 0;">
+              </div>
+            </div>
+
+            <!-- Quick Command Guide Side Card -->
+            <div style="width: 250px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px;">
+              <div class="card" style="margin: 0; padding: 16px; flex: 1; overflow-y: auto;">
+                <div class="card-title" style="font-size: 11px; text-transform: uppercase;">Command Directory</div>
+                
+                <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 12px; font-size: 11px;">
+                  <div>
+                    <span style="font-family: var(--font-mono); color: var(--accent); font-weight: 700; display: block; margin-bottom: 2px;">help</span>
+                    <span style="color: var(--text-secondary);">Prints details of all supported console commands.</span>
+                  </div>
+                  <div>
+                    <span style="font-family: var(--font-mono); color: var(--accent); font-weight: 700; display: block; margin-bottom: 2px;">scan</span>
+                    <span style="color: var(--text-secondary);">Trigger a new security audit scan using active targets.</span>
+                  </div>
+                  <div>
+                    <span style="font-family: var(--font-mono); color: var(--accent); font-weight: 700; display: block; margin-bottom: 2px;">status</span>
+                    <span style="color: var(--text-secondary);">Queries active backend microservice API health status.</span>
+                  </div>
+                  <div>
+                    <span style="font-family: var(--font-mono); color: var(--accent); font-weight: 700; display: block; margin-bottom: 2px;">config</span>
+                    <span style="color: var(--text-secondary);">Dumps loaded configurations raw parameters dictionary.</span>
+                  </div>
+                  <div>
+                    <span style="font-family: var(--font-mono); color: var(--accent); font-weight: 700; display: block; margin-bottom: 2px;">clear</span>
+                    <span style="color: var(--text-secondary);">Erases command execution outputs from the terminal canvas.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ================== CONFIGURATION SCREEN (F6) ================== -->
+        <div class="tab-content" id="tab-settings">
+          <div class="layout-split">
+            
+            <div class="split-left" style="display: flex; flex-direction: column; gap: 16px;">
+              <div class="card" style="margin: 0;">
+                <div class="card-title">Engine Performance Tuning</div>
+                
+                <div class="form-group">
+                  <label for="cfg-max-workers">Concurrence Workers Threads</label>
+                  <select id="cfg-max-workers" class="form-control">
+                    <option value="1">1 Thread (Single Core)</option>
+                    <option value="2">2 Threads (Light Multiprocessing)</option>
+                    <option value="4">4 Threads (Optimized)</option>
+                    <option value="8">8 Threads (Performance)</option>
+                    <option value="16">16 Threads (Max core limit)</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="cfg-max-depth">Maximum Archive Extraction layers</label>
+                  <select id="cfg-max-depth" class="form-control">
+                    <option value="1">1 Layer (Outer JARs only)</option>
+                    <option value="2">2 Layers (Standard nested dependencies)</option>
+                    <option value="3">3 Layers (Recommended - deep inspection)</option>
+                    <option value="5">5 Layers (Thorough scans / Anti-evasion)</option>
+                    <option value="50">50 Layers (Unlimited / Archive depth maximum)</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="cfg-quar-dir">Isolation Vault folder path</label>
+                  <div style="display: flex; gap: 8px;">
+                    <input type="text" id="cfg-quar-dir" class="form-control" placeholder="Default (~/.mcrataway/quarantine)">
+                    <button class="btn secondary sm" id="btn-browse-qdir">Browse</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card" style="margin: 0;">
+                <div class="card-title">DateTime Display Format</div>
+                
+                <div class="form-group">
+                  <label for="cfg-date-format">Date Layout Format</label>
+                  <select id="cfg-date-format" class="form-control">
+                    <option value="YYYY-MM-DD">YYYY-MM-DD (2026-08-01)</option>
+                    <option value="DD.MM.YYYY">DD.MM.YYYY (01.08.2026)</option>
+                    <option value="MM/DD/YYYY">MM/DD/YYYY (08/01/2026)</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="cfg-time-format">Time Layout Format</label>
+                  <select id="cfg-time-format" class="form-control">
+                    <option value="24h">24 Hours (20:30:15)</option>
+                    <option value="12h">12 Hours (08:30:15 PM)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="card" style="margin: 0;">
+                <div class="card-title">API Authentication token</div>
+                <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;">Specify access token secret credentials key:</p>
+                <form style="display: flex; gap: 8px;" onsubmit="return false;">
+                  <input type="text" name="username" style="display:none;" autocomplete="username" value="guest">
+                  <input type="password" id="cfg-token" class="form-control" autocomplete="current-password" placeholder="Access key credentials...">
+                  <button type="button" class="btn sm" id="btn-save-token">Save</button>
+                  <button type="button" class="btn secondary sm" id="btn-clear-token">Clear</button>
+                </form>
+                <p id="cfg-token-status" style="font-size: 11px; color: var(--text-dim); margin-top: 6px; font-weight: 500;">
+                  Status: Open mode
+                </p>
+              </div>
+            </div>
+
+            <div class="split-right" style="display: flex; flex-direction: column; gap: 16px; border-left: 1px solid var(--border-color); padding-left: 24px;">
+              <div class="card" style="margin: 0;">
+                <div class="card-title">Directory Scan Exclusions</div>
+                <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                  <input type="text" id="cfg-exclude-input" class="form-control" placeholder="Absolute folder path to exclude...">
+                  <button type="button" class="btn secondary sm" id="btn-browse-exclude">Browse</button>
+                  <button type="button" class="btn sm" id="btn-add-exclude">Exclude</button>
+                </div>
+                <ul class="item-list" id="cfg-exclusions-list" style="max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 6px; border-radius: 8px; border: 1px solid var(--border-color);">
+                  <!-- exclusions list items -->
+                </ul>
+              </div>
+
+              <div class="card" style="margin: 0; flex: 1; display: flex; flex-direction: column;">
+                <div class="card-title">Whitelists Hash Signatures</div>
+                <ul class="item-list" id="cfg-whitelists-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 6px; border-radius: 8px; border: 1px solid var(--border-color); max-height: 150px;">
+                  <!-- whitelists list items -->
+                </ul>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+
+      </div>
+
+  </div>
+
+  <script>
+    // ================= GLOBAL CONTROLLER & CLIENT LOGIC =================
+    const TOKEN_KEY = 'mcrataway-token';
+    let systemConfig = null;
+    let wsConnection = null;
+    let scanJobHistory = [];
+    let findingsList = [];
+    let activeJob = null;
+    let folderBrowserState = { currentPath: '', selectCallback: null };
+
+    // DOM selectors
+    const promptInput = document.getElementById('cmd-prompt-input');
+    const healthText = document.getElementById('health-text');
+    const healthLed = document.getElementById('health-led');
+    const systemTime = document.getElementById('system-time');
+    const tickerConsole = document.getElementById('scanner-ticker-box');
+
+    // DateTime format helpers
+    function formatDate(dateObj) {
+      const fmt = localStorage.getItem('mcrataway-date-format') || 'YYYY-MM-DD';
+      const yyyy = dateObj.getFullYear();
+      const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const dd = String(dateObj.getDate()).padStart(2, '0');
+
+      if (fmt === 'DD.MM.YYYY') return `${dd}.${mm}.${yyyy}`;
+      if (fmt === 'MM/DD/YYYY') return `${mm}/${dd}/${yyyy}`;
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    function formatTime(dateObj) {
+      const fmt = localStorage.getItem('mcrataway-time-format') || '24h';
+      const hh = dateObj.getHours();
+      const mi = String(dateObj.getMinutes()).padStart(2, '0');
+      const ss = String(dateObj.getSeconds()).padStart(2, '0');
+
+      if (fmt === '12h') {
+        const ampm = hh >= 12 ? 'PM' : 'AM';
+        const hh12 = String(hh % 12 || 12).padStart(2, '0');
+        return `${hh12}:${mi}:${ss} ${ampm}`;
+      }
+      const hh24 = String(hh).padStart(2, '0');
+      return `${hh24}:${mi}:${ss}`;
+    }
+
+    function formatDateTime(dateStrOrObj) {
+      const d = (typeof dateStrOrObj === 'string' || typeof dateStrOrObj === 'number') ? new Date(dateStrOrObj) : dateStrOrObj;
+      if (!d || isNaN(d.getTime())) return 'N/A';
+      return `${formatDate(d)} ${formatTime(d)}`;
+    }
+
+    // Update real time clock
+    setInterval(() => {
+      const now = new Date();
+      systemTime.innerText = `TIME: ${formatDateTime(now)}`;
+    }, 1000);
+
+    // Ticker utility
+    function appendTicker(msg, isErr = false, isSuccess = false) {
+      const div = document.createElement('div');
+      div.style.padding = '2px 0';
+      if (isErr) div.style.color = 'var(--danger)';
+      else if (isSuccess) div.style.color = 'var(--success)';
+      else div.style.color = '#38bdf8';
+      
+      div.innerText = `[${formatTime(new Date())}] ${msg}`;
+      tickerConsole.appendChild(div);
+      tickerConsole.scrollTop = tickerConsole.scrollHeight;
+    }
+
+    // API requesting framework
+    function getAuthToken() {
+      return localStorage.getItem(TOKEN_KEY) || null;
+    }
+
+    async function apiRequest(path, options = {}) {
+      const headers = new Headers(options.headers || {});
+      headers.set('Content-Type', 'application/json');
+      const token = getAuthToken();
+      if (token) {
+        headers.set('X-Mcrataway-Token', token);
+      }
+      
+      try {
+        const response = await fetch(path, { ...options, headers });
+        if (response.status === 401) {
+          appendTicker('ERROR: Gateway authentication required. Configure secret key token.', true);
+          return { error: 'Authentication required' };
+        }
+        if (!response.ok) {
+          throw new Error(`API returned HTTP ${response.status}`);
+        }
+        return await response.json();
+      } catch (err) {
+        appendTicker(`CONNECTION ERROR: ${err.message}`, true);
+        return { error: err.message };
+      }
+    }
+
+    // Health and setup connection ping
+    async function checkHealth() {
+      const data = await apiRequest('/system/health');
+      if (data && !data.error) {
+        healthText.innerText = 'Core Online';
+        healthLed.className = 'status-led';
+        document.getElementById('core-ver').innerText = data.version || '1.1.0';
+        return true;
+      } else {
+        healthText.innerText = 'Core Offline';
+        healthLed.className = 'status-led offline';
+        return false;
+      }
+    }
+
+    // Bind ping button
+    document.getElementById('btn-ping-core').addEventListener('click', async () => {
+      appendTicker('Ping core health endpoint...');
+      await checkHealth();
+    });
+
+    // ================= UI STATE NAVIGATION (TABBING) =================
+    const navButtons = document.querySelectorAll('.nav-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+    const activeTabTitle = document.getElementById('active-tab-title');
+
+    function switchTab(tabId) {
+      navButtons.forEach(btn => {
+        if (btn.getAttribute('data-tab') === tabId) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+
+      tabContents.forEach(tab => {
+        if (tab.id === `tab-${tabId}`) {
+          tab.classList.add('active');
+        } else {
+          tab.classList.remove('active');
+        }
+      });
+      
+      // Update header title
+      const label = Array.from(navButtons).find(btn => btn.getAttribute('data-tab') === tabId)?.querySelector('span')?.innerText || tabId;
+      activeTabTitle.innerText = label;
+
+      appendTicker(`Navigated to section: ${label}`);
+      
+      // Load specific data on tab swap
+      if (tabId === 'scan') loadScanPage();
+      if (tabId === 'findings') loadFindings();
+      if (tabId === 'history') loadHistory();
+      if (tabId === 'rules') loadRules();
+      if (tabId === 'quarantine') loadQuarantine();
+      if (tabId === 'settings') loadConfig();
+      if (tabId === 'terminal') {
+        setTimeout(() => {
+          const tInput = document.getElementById('terminal-prompt-input');
+          if (tInput) tInput.focus();
+        }, 50);
+      }
+    }
+
+    navButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        switchTab(btn.getAttribute('data-tab'));
+      });
+    });
+
+    // Support hotkeys F1-F7
+    window.addEventListener('keydown', (e) => {
+      const tabs = ['scan', 'findings', 'history', 'rules', 'quarantine', 'terminal', 'settings'];
+      if (e.key >= 'F1' && e.key <= 'F7') {
+        e.preventDefault();
+        const index = parseInt(e.key.substring(1)) - 1;
+        switchTab(tabs[index]);
+      }
+    });
+
+    // ================= RADAR GRAPHICS (REMOVED) =================
+    let radarSweeping = false;
+    function triggerThreatBlip() {
+      // Stubbed: Radar is removed
+    }
+
+    // ================= F1: SCANNER ENGINE INTEGRATIONS =================
+    let scanSelectedRoots = [];
+
+    async function loadScanPage() {
+      // 1. Fetch auto-discovered roots
+      const rootsData = await apiRequest('/system/roots');
+      const discoveredRoots = Array.isArray(rootsData) ? rootsData : [];
+
+      // 2. Fetch config to load custom roots
+      const configData = await apiRequest('/system/config');
+      const customRoots = (configData && configData.custom_roots) ? configData.custom_roots : [];
+
+      const box = document.getElementById('roots-list');
+      box.innerHTML = '';
+      scanSelectedRoots = [];
+
+      // Combine both lists
+      const allRoots = [];
+      discoveredRoots.forEach(r => {
+        allRoots.push({ path: r, isCustom: false });
+      });
+      customRoots.forEach(r => {
+        if (!discoveredRoots.includes(r)) {
+          allRoots.push({ path: r, isCustom: true });
+        }
+      });
+
+      if (allRoots.length > 0) {
+        allRoots.forEach(item => {
+          scanSelectedRoots.push(item.path); // Default checked
+          
+          const row = document.createElement('div');
+          row.style.display = 'flex';
+          row.style.alignItems = 'center';
+          row.style.justifyContent = 'space-between';
+          row.style.gap = '10px';
+          row.style.width = '100%';
+
+          const label = document.createElement('label');
+          label.style.display = 'flex';
+          label.style.alignItems = 'center';
+          label.style.gap = '10px';
+          label.style.cursor = 'pointer';
+          label.style.fontSize = '12px';
+          label.style.flex = '1';
+          label.style.minWidth = '0';
+          
+          const chk = document.createElement('input');
+          chk.type = 'checkbox';
+          chk.checked = true;
+          chk.value = item.path;
+          chk.addEventListener('change', () => {
+            if (chk.checked) {
+              if (!scanSelectedRoots.includes(item.path)) scanSelectedRoots.push(item.path);
+            } else {
+              scanSelectedRoots = scanSelectedRoots.filter(r => r !== item.path);
+            }
+          });
+
+          label.appendChild(chk);
+          
+          const pathSpan = document.createElement('span');
+          pathSpan.style.textOverflow = 'ellipsis';
+          pathSpan.style.overflow = 'hidden';
+          pathSpan.style.whiteSpace = 'nowrap';
+          pathSpan.innerText = item.path + (item.isCustom ? ' [Custom]' : '');
+          label.appendChild(pathSpan);
+          
+          row.appendChild(label);
+
+          if (item.isCustom) {
+            const btnRemove = document.createElement('button');
+            btnRemove.type = 'button';
+            btnRemove.className = 'btn-ping';
+            btnRemove.style.color = 'var(--danger)';
+            btnRemove.style.fontSize = '10px';
+            btnRemove.style.padding = '2px 6px';
+            btnRemove.innerText = 'Remove';
+            btnRemove.onclick = async () => {
+              const updatedCustom = customRoots.filter(r => r !== item.path);
+              await apiRequest('/system/config', {
+                method: 'POST',
+                body: JSON.stringify({ custom_roots: updatedCustom })
+              });
+              appendTicker(`Removed custom target directory: ${item.path}`);
+              loadScanPage();
+            };
+            row.appendChild(btnRemove);
+          }
+
+          box.appendChild(row);
+        });
+      } else {
+        box.innerHTML = `<span style="font-style:italic; color:var(--text-dim);">No scan directories configured</span>`;
+      }
+    }
+
+    // Start Scanner Audit Run
+    document.getElementById('btn-start-audit').addEventListener('click', () => {
+      triggerScanJob();
+    });
+
+    async function triggerScanJob() {
+      if (scanSelectedRoots.length === 0) {
+        appendTicker('ERROR: Select at least one scan target.', true);
+        return;
+      }
+
+      // Clear telemetry logs before scan starts
+      document.getElementById('scanner-ticker-box').innerHTML = '';
+
+      // Check toggles and sync config first
+      const scanArchives = document.getElementById('scan-nested-chk').checked;
+      const scanScripts = document.getElementById('scan-scripts-chk').checked;
+      const autoQuar = document.getElementById('auto-quar-chk').checked;
+
+      appendTicker('Updating pre-audit scan configurations...');
+      await apiRequest('/system/config', {
+        method: 'POST',
+        body: JSON.stringify({
+          scan_archives: scanArchives,
+          scan_scripts: scanScripts,
+          quarantine_malicious: autoQuar
+        })
+      });
+
+      appendTicker('Initializing scanning workers threads...');
+      document.getElementById('audit-status').innerText = 'PENDING';
+      document.getElementById('audit-status').style.color = 'var(--warning)';
+      
+      const payload = await apiRequest(`/scan/?auto_discover=false&${scanSelectedRoots.map(r => `roots=${encodeURIComponent(r)}`).join('&')}`, {
+        method: 'POST'
+      });
+
+      if (payload && payload.job_id) {
+        appendTicker(`Scan job registered: [ID: ${payload.job_id}]`, false, true);
+        activeJob = payload.job_id;
+        radarSweeping = true;
+        document.getElementById('audit-status').innerText = 'RUNNING';
+        document.getElementById('audit-status').style.color = 'var(--accent)';
+        
+        // Reset metrics & progress bar
+        document.getElementById('audit-count-total').innerText = '0';
+        document.getElementById('audit-count-mal').innerText = '0';
+        document.getElementById('audit-count-sus').innerText = '0';
+        document.getElementById('audit-count-clean').innerText = '0';
+        document.getElementById('audit-progress-bar').style.width = '0%';
+        document.getElementById('audit-progress-text').innerText = '0% Completed';
+        document.getElementById('audit-progress-files').innerText = '0 / 0 files';
+        document.getElementById('audit-active-file-path').innerText = 'Initializing...';
+
+        // Connect Websocket
+        connectWebsocketStream(payload.job_id);
+      } else {
+        appendTicker('Scan start failed. Verify core connection.', true);
+      }
+    }
+
+    function connectWebsocketStream(jobId) {
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const token = getAuthToken();
+      const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : '';
+      const wsUrl = `${wsProtocol}//${window.location.host}/scan/${jobId}/stream${tokenQuery}`;
+      
+      if (wsConnection) wsConnection.close();
+      wsConnection = new WebSocket(wsUrl);
+
+      wsConnection.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'progress') {
+          const prog = Math.round(data.progress || 0);
+          document.getElementById('audit-progress-bar').style.width = `${prog}%`;
+          document.getElementById('audit-progress-text').innerText = `${prog}% Completed`;
+          
+          const totalFiles = data.total || 0;
+          const scannedFiles = data.scanned || 0;
+          document.getElementById('audit-count-total').innerText = scannedFiles;
+          document.getElementById('audit-progress-files').innerText = `${scannedFiles} / ${totalFiles} files`;
+        } else if (data.type === 'finding') {
+          const path = data.finding.file_path.split(/[/\\]/).pop();
+          appendTicker(`Check: ${path} -> CLEAN`);
+          
+          let cleanVal = parseInt(document.getElementById('audit-count-clean').innerText);
+          document.getElementById('audit-count-clean').innerText = cleanVal + 1;
+
+          // Update active scanner display
+          document.getElementById('audit-active-file-path').innerText = path;
+        } else if (data.type === 'verdict') {
+          const path = data.verdict.file_path.split(/[/\\]/).pop();
+          const v = data.verdict.verdict;
+          
+          if (v === 'MALICIOUS') {
+            appendTicker(`WARNING: ${path} -> HIGH DETECTED SHIELD ANOMALY [${v}]`, true);
+            let malVal = parseInt(document.getElementById('audit-count-mal').innerText);
+            document.getElementById('audit-count-mal').innerText = malVal + 1;
+            triggerThreatBlip();
+          } else {
+            appendTicker(`ALERT: ${path} -> DETECTED SUSPICIOUS SIGNATURE [${v}]`, false);
+            let susVal = parseInt(document.getElementById('audit-count-sus').innerText);
+            document.getElementById('audit-count-sus').innerText = susVal + 1;
+          }
+
+          // Update active scanner display
+          document.getElementById('audit-active-file-path').innerText = path;
+        } else if (data.type === 'status') {
+          document.getElementById('audit-status').innerText = data.status;
+          if (data.status === 'COMPLETED') {
+            appendTicker('Audit run complete. All threads closed.', false, true);
+            document.getElementById('audit-status').style.color = 'var(--success)';
+            radarSweeping = false;
+            wsConnection.close();
+            document.getElementById('audit-active-file-path').innerText = 'Idle (Completed)';
+          } else if (data.status === 'FAILED') {
+            appendTicker(`Audit thread crashed: ${data.error}`, true);
+            document.getElementById('audit-status').style.color = 'var(--danger)';
+            radarSweeping = false;
+            wsConnection.close();
+            document.getElementById('audit-active-file-path').innerText = 'Idle (Failed)';
+          }
+        }
+      };
+
+      wsConnection.onerror = () => {
+        appendTicker('Stream interrupted: Lost websocket connection.', true);
+      };
+    }
+
+    // Directory explorer drawer
+    const pickerPanel = document.getElementById('folder-picker-panel');
+    document.getElementById('btn-browse-target').addEventListener('click', () => {
+      openFolderBrowser('', async (path) => {
+        // Load current custom roots first
+        const configData = await apiRequest('/system/config');
+        const customRoots = (configData && configData.custom_roots) ? configData.custom_roots : [];
+        if (!customRoots.includes(path)) {
+          const updated = [...customRoots, path];
+          await apiRequest('/system/config', {
+            method: 'POST',
+            body: JSON.stringify({ custom_roots: updated })
+          });
+          appendTicker(`Added custom target directory: ${path}`, false, true);
+          loadScanPage();
+        }
+      });
+    });
+
+    document.getElementById('btn-close-browser').addEventListener('click', () => {
+      pickerPanel.style.display = 'none';
+    });
+
+    async function openFolderBrowser(initialPath, callback) {
+      pickerPanel.style.display = 'flex';
+      folderBrowserState.selectCallback = callback;
+      loadFolderBrowserData(initialPath);
+    }
+
+    async function loadFolderBrowserData(path) {
+      const data = await apiRequest(`/system/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`);
+      if (data && !data.error) {
+        folderBrowserState.currentPath = data.current_path;
+        document.getElementById('explorer-breadcrumbs').innerText = `${data.current_path}`;
+        
+        const treeBox = document.getElementById('explorer-tree');
+        treeBox.innerHTML = '';
+
+        if (data.parent_path) {
+          const upNode = document.createElement('div');
+          upNode.className = 'explorer-row';
+          upNode.innerHTML = `<span onclick="loadFolderBrowserData('${data.parent_path.replace(/\\/g, '\\\\')}')">📁 .. [Up Directory]</span>`;
+          treeBox.appendChild(upNode);
+        }
+
+        (data.items || []).forEach(item => {
+          const node = document.createElement('div');
+          node.className = 'explorer-row';
+          const icon = item.is_dir ? '📁 ' : '📄 ';
+          const clickAction = item.is_dir 
+            ? `loadFolderBrowserData('${item.path.replace(/\\/g, '\\\\')}')` 
+            : `folderBrowserState.selectCallback('${item.path.replace(/\\/g, '\\\\')}')`;
+
+          node.innerHTML = `<span onclick="${clickAction}">${icon}${item.name}</span>`;
+          treeBox.appendChild(node);
+        });
+      }
+    }
+
+    document.getElementById('btn-select-current-dir').addEventListener('click', () => {
+      if (folderBrowserState.selectCallback && folderBrowserState.currentPath) {
+        folderBrowserState.selectCallback(folderBrowserState.currentPath);
+        pickerPanel.style.display = 'none';
+      }
+    });
+
+    // ================= F2: FINDINGS MASTER-DETAIL VIEW =================
+    async function loadFindings() {
+      const severity = document.getElementById('findings-verdict-filter').value;
+      const data = await apiRequest(`/findings/${severity ? `?severity=${severity}` : ''}`);
+      findingsList = Array.isArray(data) ? data : [];
+      renderFindingsList();
+    }
+
+    document.getElementById('findings-verdict-filter').addEventListener('change', loadFindings);
+    document.getElementById('findings-search').addEventListener('input', renderFindingsList);
+
+    function renderFindingsList() {
+      const term = document.getElementById('findings-search').value.toLowerCase();
+      const listbox = document.getElementById('findings-list-box');
+      listbox.innerHTML = '';
+
+      const filtered = findingsList.filter(f => {
+        if (f.verdict === 'CLEAN') return false; 
+        const base = f.file_path.split(/[/\\]/).pop().toLowerCase();
+        return base.includes(term) || f.sha256.includes(term);
+      });
+
+      filtered.forEach(f => {
+        const item = document.createElement('li');
+        item.className = 'item-row';
+        const base = f.file_path.split(/[/\\]/).pop();
+        
+        let colorDot = 'var(--success)';
+        if (f.verdict === 'MALICIOUS') colorDot = 'var(--danger)';
+        else if (f.verdict === 'SUSPICIOUS') colorDot = 'var(--warning)';
+
+        item.innerHTML = `
+          <div style="min-width:0; flex:1;">
+            <div style="font-weight:600; color:white; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${base}</div>
+            <div style="font-size:11px; color:var(--text-dim); font-family:var(--font-mono); margin-top:2px;">SHA: ${f.sha256.substring(0,12)}...</div>
+          </div>
+          <span class="badge ${f.verdict.toLowerCase()}">${f.verdict}</span>
+        `;
+        
+        item.addEventListener('click', () => {
+          document.querySelectorAll('#findings-list-box .item-row').forEach(li => li.classList.remove('selected'));
+          item.classList.add('selected');
+          showFindingDetail(f);
+        });
+
+        listbox.appendChild(item);
+      });
+
+      if (filtered.length === 0) {
+        listbox.innerHTML = `<li style="padding:20px; text-align:center; color:var(--text-dim); font-style:italic;">No threat records match selection</li>`;
+      }
+    }
+
+    function showFindingDetail(finding) {
+      document.getElementById('findings-detail-empty').style.display = 'none';
+      const detail = document.getElementById('findings-detail-content');
+      detail.style.display = 'flex';
+
+      const fileBase = finding.file_path.split(/[/\\]/).pop();
+      document.getElementById('find-file-name').innerText = fileBase;
+      document.getElementById('find-file-path').innerText = finding.file_path;
+      document.getElementById('find-file-hash').innerText = finding.sha256;
+      
+      const badge = document.getElementById('find-verdict-badge');
+      badge.innerText = finding.verdict;
+      badge.className = `badge ${finding.verdict.toLowerCase()}`;
+      
+      document.getElementById('find-confidence').innerText = `${Math.round(finding.confidence * 100)}%`;
+
+      document.getElementById('btn-copy-hash').onclick = () => {
+        navigator.clipboard.writeText(finding.sha256);
+        appendTicker('Hash copied to clipboard!');
+      };
+
+      const btnWhitelist = document.getElementById('btn-action-whitelist');
+      const btnQuar = document.getElementById('btn-action-quarantine');
+
+      btnWhitelist.onclick = async () => {
+        btnWhitelist.disabled = true;
+        btnWhitelist.innerText = 'Whitelisting...';
+        const res = await apiRequest('/system/whitelist', {
+          method: 'POST',
+          body: JSON.stringify({ sha256: finding.sha256 })
+        });
+        if (res && res.success) {
+          appendTicker(`WHITELIST: Registered safe hash [${finding.sha256}]`, false, true);
+          btnWhitelist.innerText = 'Whitelisted ✔';
+          loadFindings();
+        } else {
+          btnWhitelist.innerText = 'Failed';
+          btnWhitelist.disabled = false;
+        }
+      };
+
+      btnQuar.onclick = async () => {
+        btnQuar.disabled = true;
+        btnQuar.innerText = 'Quarantining...';
+        const res = await apiRequest(`/quarantine/${finding.sha256}?file_path=${encodeURIComponent(finding.file_path)}`, {
+          method: 'POST'
+        });
+        if (res && res.success) {
+          appendTicker(`QUARANTINE: Moved mod file to secure vault folder`, false, true);
+          btnQuar.innerText = 'Quarantined ✔';
+          loadFindings();
+        } else {
+          btnQuar.innerText = 'Failed';
+          btnQuar.disabled = false;
+        }
+      };
+
+      const indBox = document.getElementById('find-indicators-box');
+      indBox.innerHTML = '';
+      
+      finding.findings.forEach(match => {
+        const box = document.createElement('div');
+        box.className = 'card';
+        box.style.margin = '0';
+        box.style.padding = '14px';
+        box.style.backgroundColor = 'rgba(0,0,0,0.15)';
+        
+        box.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <span style="font-weight:600; color:var(--accent); font-family:var(--font-mono);">${match.detector_id}</span>
+            <span class="badge" style="font-size:9px; border-color:var(--danger-border); color:var(--danger); background:var(--danger-bg);">${match.severity}</span>
+          </div>
+          <p style="font-size:12px; color:var(--text-secondary); line-height:1.4;">${match.description}</p>
+          ${match.class_name ? `<div style="font-size:10px; font-family:var(--font-mono); color:var(--text-dim); margin-top:8px; background:rgba(255,255,255,0.02); padding:4px 8px; border-radius:4px; border:1px solid var(--border-color);">CLASS: ${match.class_name}.${match.method_name}()</div>` : ''}
+          ${match.matched_value ? `<div style="font-size:11px; margin-top:8px; color:var(--text-dim); font-weight:500;">Matched value:</div><pre class="code-block" style="margin-top:4px;">${match.matched_value}</pre>` : ''}
+        `;
+        indBox.appendChild(box);
+      });
+    }
+
+    // ================= F3: HISTORY REPORT REGISTRY =================
+    async function loadHistory() {
+      const data = await apiRequest('/history/');
+      const box = document.getElementById('history-list-box');
+      box.innerHTML = '';
+
+      const purgeBtn = document.getElementById('btn-purge-history');
+
+      if (data && data.length > 0) {
+        if (purgeBtn) purgeBtn.style.display = 'block';
+        data.forEach(entry => {
+          const item = document.createElement('li');
+          item.className = 'item-row';
+          item.innerHTML = `
+            <div style="min-width:0; flex:1;">
+              <div style="font-weight:600; color:white;">Audit Session: ${formatDateTime(entry.timestamp)}</div>
+              <div style="font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px;">Targets: ${entry.roots.join(', ')}</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+              <div style="text-align:right; font-size:11px; font-weight:600;">
+                <span style="color:var(--danger);">${entry.summary.malicious}M</span> / 
+                <span style="color:var(--warning);">${entry.summary.suspicious}S</span>
+              </div>
+              <button class="btn danger sm" style="padding:2px 6px; height:24px; display:flex; align-items:center; justify-content:center; border: 1.5px solid rgba(244,63,94,0.2);" title="Delete session record" onclick="event.stopPropagation(); deleteHistorySession('${entry.scan_id}');">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              </button>
+            </div>
+          `;
+          
+          item.addEventListener('click', () => {
+            document.querySelectorAll('#history-list-box .item-row').forEach(li => li.classList.remove('selected'));
+            item.classList.add('selected');
+            showHistoryReport(entry.scan_id);
+          });
+          box.appendChild(item);
+        });
+      } else {
+        if (purgeBtn) purgeBtn.style.display = 'none';
+        box.innerHTML = `<li style="padding:20px; text-align:center; color:var(--text-dim); font-style:italic;">No past run history detected</li>`;
+      }
+    }
+
+    async function deleteHistorySession(scanId) {
+      if (confirm("Are you sure you want to permanently delete this scan history session?")) {
+        const res = await apiRequest(`/history/${scanId}`, {
+          method: 'DELETE'
+        });
+        if (res && res.success) {
+          appendTicker('Persisted scan report deleted from database.');
+          const activeReportId = document.getElementById('hist-report-id').innerText;
+          if (activeReportId === scanId) {
+            document.getElementById('history-report-content').style.display = 'none';
+            document.getElementById('history-report-empty').style.display = 'flex';
+          }
+          loadHistory();
+        } else {
+          appendTicker('Failed to delete scan report.', true);
+        }
+      }
+    }
+
+    window.deleteHistorySession = deleteHistorySession;
+
+    // Purge history event listener
+    document.getElementById('btn-purge-history').addEventListener('click', async () => {
+      if (confirm("Are you sure you want to permanently delete ALL persisted scan history sessions?")) {
+        const data = await apiRequest('/history/');
+        if (data && data.length > 0) {
+          for (const entry of data) {
+            await apiRequest(`/history/${entry.scan_id}`, { method: 'DELETE' });
+          }
+          appendTicker('All scan history sessions cleared.');
+          document.getElementById('history-report-content').style.display = 'none';
+          document.getElementById('history-report-empty').style.display = 'flex';
+          loadHistory();
+        }
+      }
+    });
+
+    let currentHistoryReportFiles = [];
+    let activeHistoryFilter = 'TOTAL';
+
+    async function showHistoryReport(scanId) {
+      document.getElementById('history-report-empty').style.display = 'none';
+      const detail = document.getElementById('history-report-content');
+      detail.style.display = 'flex';
+
+      // Clear search input on report load
+      document.getElementById('history-report-search').value = '';
+
+      const data = await apiRequest(`/history/${scanId}`);
+      if (data && !data.error) {
+        document.getElementById('hist-report-id').innerText = data.scan_id;
+        document.getElementById('hist-report-time').innerText = formatDateTime(data.timestamp);
+        
+        document.getElementById('hist-stat-total').innerText = data.summary.total_files;
+        document.getElementById('hist-stat-mal').innerText = data.summary.malicious;
+        document.getElementById('hist-stat-sus').innerText = data.summary.suspicious;
+        document.getElementById('hist-stat-clean').innerText = data.summary.clean;
+
+        // Store all files in memory (allows filtering clean items as well)
+        currentHistoryReportFiles = Array.isArray(data.files) ? data.files : [];
+        
+        // Set default filter selection to TOTAL
+        setHistoryFilter('TOTAL');
+      }
+    }
+
+    function setHistoryFilter(filterType) {
+      activeHistoryFilter = filterType;
+      
+      const cards = {
+        'TOTAL': { id: 'hist-card-total', activeBorder: '1.5px solid var(--accent)', defaultBorder: '1.5px solid var(--border-color)' },
+        'MALICIOUS': { id: 'hist-card-mal', activeBorder: '1.5px solid var(--danger)', defaultBorder: '1.5px solid rgba(244, 63, 94, 0.2)' },
+        'SUSPICIOUS': { id: 'hist-card-sus', activeBorder: '1.5px solid var(--warning)', defaultBorder: '1.5px solid rgba(245, 158, 11, 0.2)' },
+        'CLEAN': { id: 'hist-card-clean', activeBorder: '1.5px solid var(--success)', defaultBorder: '1.5px solid var(--border-color)' }
+      };
+
+      Object.keys(cards).forEach(key => {
+        const item = cards[key];
+        const el = document.getElementById(item.id);
+        if (el) {
+          if (key === filterType) {
+            el.style.border = item.activeBorder;
+            el.style.boxShadow = '0 0 10px rgba(255, 255, 255, 0.05)';
+            el.style.transform = 'scale(1.02)';
+          } else {
+            el.style.border = item.defaultBorder;
+            el.style.boxShadow = 'none';
+            el.style.transform = 'scale(1.0)';
+          }
+        }
+      });
+
+      renderHistoryReportFiles(document.getElementById('history-report-search').value);
+    }
+
+    function renderHistoryReportFiles(query) {
+      const filesBox = document.getElementById('hist-report-files-box');
+      filesBox.innerHTML = '';
+      
+      const q = query.toLowerCase().trim();
+      
+      // 1. Filter by verdict category
+      let filtered = currentHistoryReportFiles;
+      if (activeHistoryFilter === 'MALICIOUS') {
+        filtered = currentHistoryReportFiles.filter(f => f.verdict === 'MALICIOUS');
+      } else if (activeHistoryFilter === 'SUSPICIOUS') {
+        filtered = currentHistoryReportFiles.filter(f => f.verdict === 'SUSPICIOUS');
+      } else if (activeHistoryFilter === 'CLEAN') {
+        filtered = currentHistoryReportFiles.filter(f => f.verdict === 'CLEAN');
+      } else {
+        // TOTAL shows warning files (Malicious & Suspicious) by default if there are any,
+        // or all files if everything is clean. Let's make TOTAL show warnings (malicious/suspicious)
+        // or all files if they specifically search. Actually, let's make TOTAL show ALL files that are NOT CLEAN,
+        // unless there are none, in which case show clean files. Wait! To be most intuitive,
+        // TOTAL should show warnings (malicious/suspicious). If the user wants clean, they click Clean.
+        // Let's filter warnings for TOTAL so it highlights threats.
+        const warnings = currentHistoryReportFiles.filter(f => f.verdict !== 'CLEAN');
+        filtered = warnings.length > 0 ? warnings : currentHistoryReportFiles;
+      }
+
+      // 2. Filter by search query
+      if (q) {
+        filtered = filtered.filter(file => {
+          const fileName = file.file_path.split(/[/\\]/).pop().toLowerCase();
+          const fullPath = file.file_path.toLowerCase();
+          const verdict = file.verdict.toLowerCase();
+          const sha256 = (file.sha256 || '').toLowerCase();
+          return fileName.includes(q) || fullPath.includes(q) || verdict.includes(q) || sha256.includes(q);
+        });
+      }
+
+      // Cap rendering at 300 to avoid DOM lag
+      const displayLimit = 300;
+      const displayList = filtered.slice(0, displayLimit);
+
+      displayList.forEach(file => {
+        const card = document.createElement('div');
+        card.className = 'item-row';
+        card.style.margin = '0';
+        card.style.cursor = 'default';
+        
+        card.innerHTML = `
+          <div style="min-width:0; flex:1;">
+            <div style="font-weight:600; color:white; font-family:var(--font-mono); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${file.file_path}">${file.file_path.split(/[/\\]/).pop()}</div>
+            <div style="font-size:11px; color:var(--text-dim); margin-top:2px;">Indicators: ${file.findings.length} matches</div>
+          </div>
+          <span class="badge ${file.verdict.toLowerCase()}">${file.verdict}</span>
+        `;
+        filesBox.appendChild(card);
+      });
+
+      if (filtered.length > displayLimit) {
+        const notice = document.createElement('div');
+        notice.style.textAlign = 'center';
+        notice.style.fontSize = '11px';
+        notice.style.color = 'var(--text-dim)';
+        notice.style.padding = '10px 0';
+        notice.innerText = `... and ${filtered.length - displayLimit} more files. Use search to filter down.`;
+        filesBox.appendChild(notice);
+      }
+
+      if (filtered.length === 0) {
+        filesBox.innerHTML = `<div style="text-align:center; font-size:12px; color:var(--text-dim); padding:20px; font-style:italic;">No files found matching criteria</div>`;
+      }
+    }
+
+    // History report search input event listener
+    document.getElementById('history-report-search').addEventListener('input', (e) => {
+      renderHistoryReportFiles(e.target.value);
+    });
+
+    // Make setHistoryFilter globally accessible since it is used in HTML inline onclicks
+    window.setHistoryFilter = setHistoryFilter;
+
+    // ================= F4: SIGNATURES YAML PACKS =================
+    async function loadRules() {
+      const data = await apiRequest('/rules/');
+      const container = document.getElementById('rules-packs-container');
+      container.innerHTML = '';
+
+      if (data && data.length > 0) {
+        data.forEach(pack => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML = `
+            <div class="card-title">
+              <span>Pack ID: ${pack.pack_id}</span>
+              <span style="font-size:11px; color:var(--text-dim); font-family:var(--font-mono);">${pack.rule_count} Detectors</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:8px;" id="pack-rules-${pack.pack_id.replace(/\./g,'_')}"></div>
+          `;
+          container.appendChild(card);
+
+          const listNode = document.getElementById(`pack-rules-${pack.pack_id.replace(/\./g,'_')}`);
+          pack.rules.forEach(rule => {
+            const row = document.createElement('div');
+            row.style.border = '1px solid var(--border-color)';
+            row.style.borderRadius = '8px';
+            row.style.padding = '10px 14px';
+            row.style.background = 'rgba(0,0,0,0.1)';
+            
+            row.innerHTML = `
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <span style="font-weight:600; font-family:var(--font-mono); font-size:12px; color:white;">${rule.id}</span>
+                <span class="badge" style="font-size:9px; border-color:var(--border-color); color:var(--text-secondary);">${rule.severity}</span>
+              </div>
+              <p style="font-size:12px; color:var(--text-secondary);">${rule.description}</p>
+              ${rule.family ? `<div style="font-size:10px; margin-top:4px; color:var(--accent); font-family:var(--font-mono); font-weight:500;">Family: ${rule.family}</div>` : ''}
+            `;
+            listNode.appendChild(row);
+          });
+        });
+      }
+    }
+
+    // Sync rules trigger
+    document.getElementById('btn-sync-rules').addEventListener('click', async () => {
+      const led = document.getElementById('rules-sync-indicator');
+      led.style.display = 'block';
+      appendTicker('Updating threat signature rules database...');
+      
+      const res = await apiRequest('/system/update-rules', { method: 'POST' });
+      led.style.display = 'none';
+      if (res && res.success) {
+        appendTicker(`Sync successful. Downloaded ${res.downloaded_count} threat rules.`, false, true);
+        loadRules();
+      } else {
+        appendTicker('Sync failed. Remote signature server unreachable.', true);
+      }
+    });
+
+    // ================= F5: QUARANTINE VAULTS =================
+    async function loadQuarantine() {
+      const data = await apiRequest('/quarantine/');
+      const box = document.getElementById('quarantine-list-box');
+      box.innerHTML = '';
+
+      if (data && data.length > 0) {
+        data.forEach(item => {
+          const row = document.createElement('li');
+          row.className = 'item-row';
+          row.style.cursor = 'default';
+          const fileBase = item.original_path.split(/[/\\]/).pop();
+          
+          row.innerHTML = `
+            <div style="min-width:0; flex:1; padding-right:15px;">
+              <div style="font-weight:600; color:white; display:flex; gap:10px; align-items:center;">
+                <span>${fileBase}</span>
+                <span class="badge" style="font-size:8px; border-color:var(--danger-border); color:var(--danger);">${item.restored ? 'Restored' : 'Isolated'}</span>
+              </div>
+              <div style="font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px;">Original Path: ${item.original_path}</div>
+              <div style="font-size:10px; color:var(--text-dim); font-family:var(--font-mono); margin-top:2px;">SHA256: ${item.sha256}</div>
+            </div>
+            <div style="shrink-0; display:flex; gap:8px;">
+              ${!item.restored ? `<button class="btn secondary sm" onclick="restoreQuarantineFile('${item.sha256}')">Restore</button>` : ''}
+              <button class="btn danger sm" onclick="deleteQuarantinePermanently('${item.sha256}')">Erase</button>
+            </div>
+          `;
+          box.appendChild(row);
+        });
+      } else {
+        box.innerHTML = `<li style="padding:20px; text-align:center; color:var(--text-dim); font-style:italic;">No files quarantined inside vault</li>`;
+      }
+    }
+
+    async function restoreQuarantineFile(sha256) {
+      appendTicker(`Restoring quarantined file hash [${sha256}]`);
+      const res = await apiRequest(`/quarantine/${sha256}/restore`, { method: 'POST' });
+      if (res && res.success) {
+        appendTicker('File restored to original target path successfully.', false, true);
+        loadQuarantine();
+      } else {
+        appendTicker('Restoration failed.', true);
+      }
+    }
+
+    async function deleteQuarantinePermanently(sha256) {
+      if (confirm('Delete this file permanently? This cannot be undone.')) {
+        appendTicker(`Purging threat file from disk storage: ${sha256}`);
+        const res = await apiRequest(`/quarantine/${sha256}`, { method: 'DELETE' });
+        if (res && res.success) {
+          appendTicker('Threat file purged permanently.', false, true);
+          loadQuarantine();
+        }
+      }
+    }
+
+    // Vault purging
+    const purgePanel = document.getElementById('quarantine-purge-confirm');
+    document.getElementById('btn-purge-quarantine').addEventListener('click', () => {
+      purgePanel.style.display = 'block';
+    });
+
+    document.getElementById('btn-cancel-purge').addEventListener('click', () => {
+      purgePanel.style.display = 'none';
+    });
+
+    document.getElementById('btn-confirm-purge').addEventListener('click', async () => {
+      appendTicker('Erasing quarantine isolation vaults...');
+      const res = await apiRequest('/quarantine/purge', { method: 'POST' });
+      purgePanel.style.display = 'none';
+      if (res && res.success) {
+        appendTicker(`Vault emptied. Purged ${res.purged_count} files permanently.`, false, true);
+        loadQuarantine();
+      }
+    });
+
+    // ================= F6: SYSTEM CONFIGURATION =================
+    async function loadConfig() {
+      const data = await apiRequest('/system/config');
+      if (data && !data.error) {
+        systemConfig = data;
+        
+        document.getElementById('cfg-max-workers').value = data.max_workers || 4;
+        document.getElementById('cfg-max-depth').value = data.max_recursion_depth || 2;
+        document.getElementById('cfg-quar-dir').value = data.quarantine_dir || '';
+
+        // Load date & time format settings from backend config
+        const dateFmt = data.date_format || 'YYYY-MM-DD';
+        const timeFmt = data.time_format || '24h';
+        localStorage.setItem('mcrataway-date-format', dateFmt);
+        localStorage.setItem('mcrataway-time-format', timeFmt);
+        document.getElementById('cfg-date-format').value = dateFmt;
+        document.getElementById('cfg-time-format').value = timeFmt;
+
+        renderExclusions();
+        renderWhitelists();
+      }
+
+      const hasKey = getAuthToken();
+      if (hasKey) {
+        document.getElementById('cfg-token').value = hasKey;
+      } else {
+        document.getElementById('cfg-token').value = '';
+      }
+      document.getElementById('cfg-token-status').innerText = hasKey 
+        ? 'Status: Token Authentication Active' 
+        : 'Status: Open Public Mode (No token set)';
+    }
+
+    function renderExclusions() {
+      const box = document.getElementById('cfg-exclusions-list');
+      box.innerHTML = '';
+      (systemConfig.excluded_paths || []).forEach(path => {
+        const li = document.createElement('li');
+        li.className = 'item-row';
+        li.style.padding = '8px 12px';
+        li.style.fontSize = '12px';
+        li.style.cursor = 'default';
+        li.innerHTML = `
+          <span style="font-family:var(--font-mono); word-break:break-all; color:white;">${path}</span>
+          <button class="btn danger sm" style="padding:2px 8px; font-size:10px; shrink:0; margin-left:15px;" onclick="removeExclusion('${path.replace(/\\/g, '\\\\')}')">Remove</button>
+        `;
+        box.appendChild(li);
+      });
+      if ((systemConfig.excluded_paths || []).length === 0) {
+        box.innerHTML = `<div style="font-style:italic; text-align:center; font-size:11px; color:var(--text-dim); padding:10px;">No directory exclusions configured</div>`;
+      }
+    }
+
+    async function removeExclusion(path) {
+      const current = systemConfig.excluded_paths || [];
+      const updated = current.filter(p => p !== path);
+      const res = await apiRequest('/system/config', {
+        method: 'POST',
+        body: JSON.stringify({ excluded_paths: updated })
+      });
+      if (res && res.success) {
+        systemConfig = res.config;
+        renderExclusions();
+        appendTicker(`Removed excluded path: ${path}`);
+      }
+    }
+
+    document.getElementById('btn-add-exclude').addEventListener('click', async () => {
+      const val = document.getElementById('cfg-exclude-input').value.trim();
+      if (!val) return;
+
+      const current = systemConfig.excluded_paths || [];
+      if (!current.includes(val)) {
+        const res = await apiRequest('/system/config', {
+          method: 'POST',
+          body: JSON.stringify({ excluded_paths: [...current, val] })
+        });
+        if (res && res.success) {
+          systemConfig = res.config;
+          renderExclusions();
+          document.getElementById('cfg-exclude-input').value = '';
+          appendTicker(`Added exclusion directory: ${val}`);
+        }
+      }
+    });
+
+    document.getElementById('btn-browse-exclude').addEventListener('click', () => {
+      openFolderBrowser('', (path) => {
+        document.getElementById('cfg-exclude-input').value = path;
+      });
+    });
+
+    function renderWhitelists() {
+      const box = document.getElementById('cfg-whitelists-list');
+      box.innerHTML = '';
+      (systemConfig.whitelisted_hashes || []).forEach(hash => {
+        const li = document.createElement('li');
+        li.className = 'item-row';
+        li.style.padding = '8px 12px';
+        li.style.fontSize = '12px';
+        li.style.cursor = 'default';
+        li.innerHTML = `
+          <span style="font-family:var(--font-mono); word-break:break-all; color:white;">${hash}</span>
+          <button class="btn danger sm" style="padding:2px 8px; font-size:10px; shrink:0; margin-left:15px;" onclick="removeWhitelist('${hash}')">Remove</button>
+        `;
+        box.appendChild(li);
+      });
+      if ((systemConfig.whitelisted_hashes || []).length === 0) {
+        box.innerHTML = `<div style="font-style:italic; text-align:center; font-size:11px; color:var(--text-dim); padding:10px;">No whitelisted hashes</div>`;
+      }
+    }
+
+    async function removeWhitelist(hash) {
+      const current = systemConfig.whitelisted_hashes || [];
+      const updated = current.filter(h => h !== hash);
+      const res = await apiRequest('/system/config', {
+        method: 'POST',
+        body: JSON.stringify({ whitelisted_hashes: updated })
+      });
+      if (res && res.success) {
+        systemConfig = res.config;
+        renderWhitelists();
+        appendTicker(`Removed whitelisted hash: ${hash}`);
+      }
+    }
+
+    // Performance tuning listeners
+    document.getElementById('cfg-max-workers').addEventListener('change', async (e) => {
+      const val = parseInt(e.target.value);
+      await apiRequest('/system/config', {
+        method: 'POST',
+        body: JSON.stringify({ max_workers: val })
+      });
+      appendTicker(`Concurrency workers adjusted: thread_limit = ${val}`);
+    });
+
+    document.getElementById('cfg-max-depth').addEventListener('change', async (e) => {
+      const val = parseInt(e.target.value);
+      await apiRequest('/system/config', {
+        method: 'POST',
+        body: JSON.stringify({ max_recursion_depth: val })
+      });
+      appendTicker(`Archive layers adjusted: recursion_limit = ${val}`);
+    });
+
+    // DateTime format listeners
+    document.getElementById('cfg-date-format').addEventListener('change', async (e) => {
+      localStorage.setItem('mcrataway-date-format', e.target.value);
+      await apiRequest('/system/config', {
+        method: 'POST',
+        body: JSON.stringify({ date_format: e.target.value })
+      });
+      appendTicker(`Date format adjusted to: ${e.target.value}`);
+      loadHistory();
+    });
+
+    document.getElementById('cfg-time-format').addEventListener('change', async (e) => {
+      localStorage.setItem('mcrataway-time-format', e.target.value);
+      await apiRequest('/system/config', {
+        method: 'POST',
+        body: JSON.stringify({ time_format: e.target.value })
+      });
+      appendTicker(`Time format adjusted to: ${e.target.value}`);
+      loadHistory();
+    });
+
+    // Browse quarantine folder
+    document.getElementById('btn-browse-qdir').addEventListener('click', () => {
+      openFolderBrowser('', async (path) => {
+        document.getElementById('cfg-quar-dir').value = path;
+        await apiRequest('/system/config', {
+          method: 'POST',
+          body: JSON.stringify({ quarantine_dir: path })
+        });
+        appendTicker(`Quarantine vault directory updated: ${path}`);
+      });
+    });
+
+    // Token listeners
+    document.getElementById('btn-save-token').addEventListener('click', () => {
+      const val = document.getElementById('cfg-token').value.trim();
+      if (val) {
+        localStorage.setItem(TOKEN_KEY, val);
+        document.getElementById('cfg-token').value = '';
+        appendTicker('Authentication credentials saved. Reloading...');
+        loadConfig();
+      }
+    });
+
+    document.getElementById('btn-clear-token').addEventListener('click', () => {
+      localStorage.removeItem(TOKEN_KEY);
+      appendTicker('Authentication credentials cleared.');
+      loadConfig();
+    });
+
+    // ================= COMMAND SHELL PROMPT PARSER =================
+    function appendTerminal(msg, isErr = false, isSuccess = false) {
+      const consoleBox = document.getElementById('terminal-console-box');
+      if (!consoleBox) return;
+      const div = document.createElement('div');
+      div.style.padding = '2px 0';
+      if (isErr) div.style.color = 'var(--danger)';
+      else if (isSuccess) div.style.color = 'var(--success)';
+      else div.style.color = '#38bdf8';
+      
+      div.innerText = msg;
+      consoleBox.appendChild(div);
+      consoleBox.scrollTop = consoleBox.scrollHeight;
+    }
+
+    // Export appendTerminal to global scope for button onclicks
+    window.appendTerminal = appendTerminal;
+
+    const terminalInput = document.getElementById('terminal-prompt-input');
+    if (terminalInput) {
+      terminalInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const val = terminalInput.value.trim();
+          if (val) {
+            executeShellCommand(val);
+            terminalInput.value = '';
+          }
+        }
+      });
+    }
+
+    async function executeShellCommand(rawCmd) {
+      const tokens = rawCmd.split(/\s+/);
+      const cmd = tokens[0].toLowerCase();
+      const args = tokens.slice(1);
+
+      appendTerminal(`$ ${rawCmd}`);
+
+      switch (cmd) {
+        case 'help':
+          appendTerminal('--- SHELL CONTROL CLI COMMANDS ---');
+          appendTerminal('tab <scan|findings|history|rules|quarantine|terminal|settings> : Swap viewport page');
+          appendTerminal('scan : Trigger audit run on targets');
+          appendTerminal('config : Print active config settings JSON');
+          appendTerminal('clear : Wipe active terminal output screen');
+          appendTerminal('status : Query core server health');
+          break;
+
+        case 'tab':
+          if (args[0]) {
+            const target = args[0].toLowerCase();
+            const tabs = ['scan', 'findings', 'history', 'rules', 'quarantine', 'terminal', 'settings'];
+            if (tabs.includes(target)) {
+              switchTab(target);
+            } else {
+              appendTerminal(`ERROR: Unknown view: ${args[0]}. Valid: scan, findings, history, rules, quarantine, terminal, settings`, true);
+            }
+          } else {
+            appendTerminal('USAGE: tab <scan|findings|history|rules|quarantine|terminal|settings>', true);
+          }
+          break;
+
+        case 'scan':
+          triggerScanJob();
+          appendTerminal('Scan command dispatched. Check F1 Scan Engine dashboard for real-time progress.', false, true);
+          break;
+
+        case 'config':
+          const cfg = await apiRequest('/system/config');
+          appendTerminal(`Config Details: ${JSON.stringify(cfg)}`);
+          break;
+
+        case 'clear':
+          document.getElementById('terminal-console-box').innerHTML = '';
+          appendTerminal('Terminal log cleared.');
+          break;
+
+        case 'status':
+          const ok = await checkHealth();
+          appendTerminal(`Core health check: ${ok ? 'Secured Online' : 'Access Denied'}`, !ok, ok);
+          break;
+
+        default:
+          appendTerminal(`Shell Exception: Command '${cmd}' not recognized. Type 'help' for guidance.`, true);
+      }
+    }
+
+    // ================= INITIAL ON-LOAD RUNNERS =================
+    async function init() {
+      // Auto-detect token in URL query params
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlToken = urlParams.get('token');
+      if (urlToken) {
+        localStorage.setItem(TOKEN_KEY, urlToken);
+        appendTicker('Autodetected security token credentials in URL. Saved.');
+        // Clean URL to hide token for security
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+
+      const isOnline = await checkHealth();
+      if (isOnline) {
+        loadScanPage();
+        loadConfig();
+      } else {
+        appendTicker('CORE OFFLINE: Verify API endpoint or access tokens.', true);
+      }
+    }
+
+    init();
+  </script>
+</body>
 </html>
