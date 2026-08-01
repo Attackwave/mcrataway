@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from mcrataway.constants import CONFIG_DIR, CONFIG_FILE, DEFAULT_HOST, DEFAULT_PORT, QUARANTINE_DIR
+from mcrataway.constants import CONFIG_DIR, CONFIG_FILE, QUARANTINE_DIR
 
 
 class UserConfig:
@@ -16,8 +16,6 @@ class UserConfig:
         max_workers: int = 4,
         quarantine_suspicious: bool = False,
         quarantine_malicious: bool = True,
-        server_host: str = DEFAULT_HOST,
-        server_port: int = DEFAULT_PORT,
         scan_archives: bool = True,
         scan_scripts: bool = True,
         scan_configs: bool = True,
@@ -34,8 +32,6 @@ class UserConfig:
         self.max_workers = max_workers
         self.quarantine_suspicious = quarantine_suspicious
         self.quarantine_malicious = quarantine_malicious
-        self.server_host = server_host
-        self.server_port = server_port
         self.scan_archives = scan_archives
         self.scan_scripts = scan_scripts
         self.scan_configs = scan_configs
@@ -69,8 +65,6 @@ class UserConfig:
                 "max_workers",
                 "quarantine_suspicious",
                 "quarantine_malicious",
-                "server_host",
-                "server_port",
                 "scan_archives",
                 "scan_scripts",
                 "scan_configs",

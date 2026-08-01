@@ -896,11 +896,31 @@
                 </div>
                 <div class="switch-group">
                   <div class="switch-label">
+                    <span class="switch-title">Analyze Config Files</span>
+                    <span class="switch-desc">Check JSON/YAML/TOML mod config files for tampering</span>
+                  </div>
+                  <label class="switch-control">
+                    <input type="checkbox" id="scan-configs-chk" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="switch-group">
+                  <div class="switch-label">
                     <span class="switch-title">Auto-Quarantine Threats</span>
                     <span class="switch-desc">Instantly quarantine critical malware items</span>
                   </div>
                   <label class="switch-control">
                     <input type="checkbox" id="auto-quar-chk">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="switch-group">
+                  <div class="switch-label">
+                    <span class="switch-title">Auto-Quarantine Suspicious</span>
+                    <span class="switch-desc">Also quarantine lower-confidence suspicious items, not just malicious ones</span>
+                  </div>
+                  <label class="switch-control">
+                    <input type="checkbox" id="auto-quar-susp-chk">
                     <span class="slider"></span>
                   </label>
                 </div>
@@ -1170,6 +1190,17 @@
                     <input type="text" id="cfg-quar-dir" class="form-control" placeholder="Default (~/.mcrataway/quarantine)">
                     <button class="btn secondary sm" id="btn-browse-qdir">Browse</button>
                   </div>
+                </div>
+
+                <div class="form-group">
+                  <label for="cfg-history-limit">Retained Audit Session History</label>
+                  <select id="cfg-history-limit" class="form-control">
+                    <option value="10">10 Sessions</option>
+                    <option value="25">25 Sessions</option>
+                    <option value="50">50 Sessions (Recommended)</option>
+                    <option value="100">100 Sessions</option>
+                    <option value="200">200 Sessions</option>
+                  </select>
                 </div>
               </div>
 
@@ -1531,7 +1562,9 @@
       // Check toggles and sync config first
       const scanArchives = document.getElementById('scan-nested-chk').checked;
       const scanScripts = document.getElementById('scan-scripts-chk').checked;
+      const scanConfigs = document.getElementById('scan-configs-chk').checked;
       const autoQuar = document.getElementById('auto-quar-chk').checked;
+      const autoQuarSusp = document.getElementById('auto-quar-susp-chk').checked;
 
       appendTicker('Updating pre-audit scan configurations...');
       await apiRequest('/system/config', {
@@ -1539,7 +1572,9 @@
         body: JSON.stringify({
           scan_archives: scanArchives,
           scan_scripts: scanScripts,
-          quarantine_malicious: autoQuar
+          scan_configs: scanConfigs,
+          quarantine_malicious: autoQuar,
+          quarantine_suspicious: autoQuarSusp
         })
       });
 
@@ -2220,6 +2255,7 @@
         document.getElementById('cfg-max-workers').value = data.max_workers || 4;
         document.getElementById('cfg-max-depth').value = data.max_recursion_depth || 2;
         document.getElementById('cfg-quar-dir').value = data.quarantine_dir || '';
+        document.getElementById('cfg-history-limit').value = data.history_max_entries || 50;
 
         // Load date & time format settings from backend config
         const dateFmt = data.date_format || 'YYYY-MM-DD';
@@ -2354,6 +2390,15 @@
         body: JSON.stringify({ max_recursion_depth: val })
       });
       appendTicker(`Archive layers adjusted: recursion_limit = ${val}`);
+    });
+
+    document.getElementById('cfg-history-limit').addEventListener('change', async (e) => {
+      const val = parseInt(e.target.value);
+      await apiRequest('/system/config', {
+        method: 'POST',
+        body: JSON.stringify({ history_max_entries: val })
+      });
+      appendTicker(`Retained history limit adjusted: ${val} sessions`);
     });
 
     // DateTime format listeners

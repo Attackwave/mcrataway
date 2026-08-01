@@ -34,6 +34,7 @@ class ConfigUpdateModel(BaseModel):
     disabled_rules: list[str] | None = None
     date_format: str | None = None
     time_format: str | None = None
+    history_max_entries: int | None = None
 
 
 @router.get("/health")
@@ -105,6 +106,8 @@ async def update_config(model: ConfigUpdateModel, request: Request) -> dict[str,
     request.app.state.config = config
     if hasattr(request.app.state, "quarantine_manager") and config.quarantine_dir:
         request.app.state.quarantine_manager.quarantine_dir = Path(config.quarantine_dir)
+    if hasattr(request.app.state, "history_store"):
+        request.app.state.history_store.max_entries = config.history_max_entries
     return {"success": True, "config": config.__dict__}
 
 
