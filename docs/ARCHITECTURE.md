@@ -73,9 +73,17 @@ mcrataway is a Minecraft mod malware scanner that analyzes Java bytecode, script
 ### CLI
 
 ```bash
-mcrataway scan <paths...> [--report out.json] [--quarantine] [--auto]
-mcrataway serve [--host 127.0.0.1] [--port 8765] [--reload]
+mcrataway [--home-dir DIR] scan <paths...> [--report out.json] [--quarantine] [--auto]
+mcrataway [--home-dir DIR] serve [--host 127.0.0.1] [--port 8765] [--reload]
 ```
+
+`--home-dir` relocates the whole `~/.mcrataway` tree — config,
+quarantine, history, rules, auth token — and must be given before the
+subcommand, since it has to be resolved before `config.yaml` itself can
+be found. It's persisted to `~/.config/mcrataway/home_dir` on first use,
+so it only needs to be passed once (`--home-dir default` clears it).
+`MCRATAWAY_HOME` is a non-persisted, higher-priority override for the
+same setting.
 
 ### Server (FastAPI)
 

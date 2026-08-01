@@ -21,8 +21,26 @@ from mcrataway.rules.loader import RulePackLoader
 
 @click.group()
 @click.version_option(package_name="mcrataway")
-def main() -> None:
+@click.option(
+    "--home-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help=(
+        "Directory for config, quarantine, history, and rules "
+        "(default: ~/.mcrataway). Persisted for future runs — you only "
+        "need to pass this once, not on every invocation. Must come "
+        "before the subcommand, e.g. 'mcrataway --home-dir /data/mcrataway "
+        "serve'. Pass 'mcrataway --home-dir default ...' to forget the "
+        "override and go back to ~/.mcrataway."
+    ),
+)
+def main(home_dir: Path | None) -> None:
     """mcrataway - Minecraft mod malware scanner."""
+    # The actual override (env var + persisted pointer file) already
+    # happened in __main__.py, before any mcrataway module (and the
+    # CONFIG_DIR paths derived at import time) was imported — --home-dir
+    # is declared here only so it shows up in --help and Click doesn't
+    # reject it as an unknown option.
     ensure_config_dir()
 
 
@@ -172,8 +190,19 @@ def scan(
 
 
 @main.command()
-@click.option("--host", default=DEFAULT_HOST, help="Bind address (default: 127.0.0.1).")
-@click.option("--port", default=DEFAULT_PORT, type=int, help="Port (default: 8765).")
+@click.option(
+    "--host",
+    default=DEFAULT_HOST,
+    envvar="MCRATAWAY_HOST",
+    help="Bind address (default: 127.0.0.1). Also settable via MCRATAWAY_HOST.",
+)
+@click.option(
+    "--port",
+    default=DEFAULT_PORT,
+    type=int,
+    envvar="MCRATAWAY_PORT",
+    help="Port (default: 8765). Also settable via MCRATAWAY_PORT.",
+)
 @click.option("--reload", "hot_reload", is_flag=True, help="Enable dev hot-reload.")
 @click.option("--no-browser", "skip_browser", is_flag=True, help="Do not open browser on startup.")
 def serve(host: str, port: int, hot_reload: bool, skip_browser: bool) -> None:

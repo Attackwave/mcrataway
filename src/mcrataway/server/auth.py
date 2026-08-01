@@ -1,6 +1,7 @@
 """Auth — loopback-only guard and optional token validation."""
 
 import hmac
+import os
 import secrets
 
 from fastapi import HTTPException, Request
@@ -17,8 +18,21 @@ def ensure_token() -> str:
     startup means the API is authenticated from the very first run,
     not only after a user has discovered the (undocumented-by-default)
     manual step.
+
+    If MCRATAWAY_TOKEN is set, it always wins and is (re)written to
+    TOKEN_FILE — useful for containers/reverse proxies, where a fresh
+    random token on every restart (and a startup log line that may not
+    be conveniently readable) is more friction than a fixed,
+    caller-chosen token.
     """
     TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    env_token = os.environ.get("MCRATAWAY_TOKEN")
+    if env_token:
+        TOKEN_FILE.write_text(env_token)
+        TOKEN_FILE.chmod(0o600)
+        return env_token
+
     if not TOKEN_FILE.exists():
         token = secrets.token_urlsafe(32)
         TOKEN_FILE.write_text(token)

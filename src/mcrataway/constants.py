@@ -1,5 +1,6 @@
 """Constants, enums, and fixed values used across the scanner."""
 
+import os
 from enum import IntEnum, StrEnum
 from pathlib import Path
 
@@ -19,8 +20,33 @@ except Exception:
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 
-# User config directory
-CONFIG_DIR = Path.home() / ".mcrataway"
+# Bootstrap pointer file: remembers a --home-dir override across
+# invocations that don't repeat the flag, so relocating ~/.mcrataway once
+# doesn't silently fork into two divergent trees (the custom one and a
+# freshly-created default one) on the next plain `mcrataway` call. Lives
+# outside CONFIG_DIR on purpose — it has to be findable *before* we know
+# where CONFIG_DIR is.
+HOME_POINTER_FILE = Path.home() / ".config" / "mcrataway" / "home_dir"
+
+
+def _resolve_config_dir() -> Path:
+    env_override = os.environ.get("MCRATAWAY_HOME")
+    if env_override:
+        return Path(env_override).expanduser()
+    if HOME_POINTER_FILE.exists():
+        pointed = HOME_POINTER_FILE.read_text().strip()
+        if pointed:
+            return Path(pointed).expanduser()
+    return Path.home() / ".mcrataway"
+
+
+# User config directory. Defaults to a hidden folder under the OS-reported
+# home directory (works the same on Linux/macOS/Windows since Path.home()
+# resolves to the right place on each). Overridable via --home-dir on the
+# CLI (which both sets MCRATAWAY_HOME for the current run and persists the
+# choice to HOME_POINTER_FILE for future runs) or by setting MCRATAWAY_HOME
+# directly, e.g. for tests or portable installs (env var never persists).
+CONFIG_DIR = _resolve_config_dir()
 QUARANTINE_DIR = CONFIG_DIR / "quarantine"
 TOKEN_FILE = CONFIG_DIR / "token"
 CONFIG_FILE = CONFIG_DIR / "config.yaml"
