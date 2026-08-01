@@ -1,9 +1,15 @@
 """Integration tests for FastAPI endpoints."""
 
+import asyncio
+import shutil
+from pathlib import Path
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from mcrataway.server.app import create_app
+
+_REAL_FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures"
 
 
 @pytest.fixture
@@ -167,3 +173,89 @@ async def test_reports_nonexistent(client: AsyncClient):
     assert resp.status_code == 200
     data = resp.json()
     assert "error" in data
+
+
+@pytest.mark.asyncio
+async def test_history_empty(client: AsyncClient):
+    resp = await client.get("/history/")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_history_nonexistent_report(client: AsyncClient):
+    resp = await client.get("/history/nonexistent")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "error" in data
+
+
+async def _run_scan_to_completion(client: AsyncClient, roots: list[str]) -> str:
+    """Start a scan and poll GET /scan/{job_id} until it leaves
+    PENDING/RUNNING. Returns the job_id. Mirrors the WebSocket-based
+    wait in test_websocket.py's test_websocket_stream_live_scan, but
+    via polling since this module's client is an httpx.AsyncClient
+    (no WebSocket support), not a WS-capable TestClient.
+    """
+    config_resp = await client.post("/system/config", json={"custom_roots": roots})
+    assert config_resp.status_code == 200
+
+    resp = await client.post("/scan/", params={"roots": roots})
+    assert resp.status_code == 200
+    job_id = resp.json()["job_id"]
+    assert job_id
+
+    for _ in range(200):
+        status_resp = await client.get(f"/scan/{job_id}")
+        status = status_resp.json().get("status")
+        if status in ("COMPLETED", "FAILED", "CANCELLED"):
+            break
+        await asyncio.sleep(0.05)
+    else:
+        pytest.fail(f"scan {job_id} did not complete in time")
+
+    return job_id
+
+
+def _scratch_fixtures_dir(tmp_path: Path) -> str:
+    """Copy tests/fixtures/ into a scratch directory before scanning it
+    — a live scan quarantines matched jars in place, which would
+    otherwise delete/rewrite the checked-in fixture files (see the
+    same fix applied to test_websocket.py's fixtures_dir fixture)."""
+    scratch = tmp_path / "fixtures"
+    shutil.copytree(_REAL_FIXTURES_DIR, scratch)
+    return str(scratch)
+
+
+@pytest.mark.asyncio
+async def test_history_after_completed_scan(client: AsyncClient, tmp_path: Path):
+    fixtures_dir = _scratch_fixtures_dir(tmp_path)
+    job_id = await _run_scan_to_completion(client, [fixtures_dir])
+
+    list_resp = await client.get("/history/")
+    assert list_resp.status_code == 200
+    entries = list_resp.json()
+    assert any(e["scan_id"] == job_id for e in entries)
+
+    report_resp = await client.get(f"/history/{job_id}")
+    assert report_resp.status_code == 200
+    report = report_resp.json()
+    assert report["scan_id"] == job_id
+    assert "summary" in report
+    assert "files" in report
+
+
+@pytest.mark.asyncio
+async def test_history_delete(client: AsyncClient, tmp_path: Path):
+    fixtures_dir = _scratch_fixtures_dir(tmp_path)
+    job_id = await _run_scan_to_completion(client, [fixtures_dir])
+
+    delete_resp = await client.delete(f"/history/{job_id}")
+    assert delete_resp.status_code == 200
+    assert delete_resp.json() == {"success": True}
+
+    report_resp = await client.get(f"/history/{job_id}")
+    assert "error" in report_resp.json()
+
+    delete_again_resp = await client.delete(f"/history/{job_id}")
+    assert delete_again_resp.json() == {"success": False}
