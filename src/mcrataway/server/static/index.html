@@ -2517,25 +2517,10 @@
       switch (cmd) {
         case 'help':
           appendTerminal('--- SHELL CONTROL CLI COMMANDS ---');
-          appendTerminal('tab <scan|findings|history|rules|quarantine|terminal|settings> : Swap viewport page');
           appendTerminal('scan : Trigger audit run on targets');
           appendTerminal('config : Print active config settings JSON');
           appendTerminal('clear : Wipe active terminal output screen');
           appendTerminal('status : Query core server health');
-          break;
-
-        case 'tab':
-          if (args[0]) {
-            const target = args[0].toLowerCase();
-            const tabs = ['scan', 'findings', 'history', 'rules', 'quarantine', 'terminal', 'settings'];
-            if (tabs.includes(target)) {
-              switchTab(target);
-            } else {
-              appendTerminal(`ERROR: Unknown view: ${args[0]}. Valid: scan, findings, history, rules, quarantine, terminal, settings`, true);
-            }
-          } else {
-            appendTerminal('USAGE: tab <scan|findings|history|rules|quarantine|terminal|settings>', true);
-          }
           break;
 
         case 'scan':
@@ -2545,7 +2530,7 @@
 
         case 'config':
           const cfg = await apiRequest('/system/config');
-          appendTerminal(`Config Details: ${JSON.stringify(cfg)}`);
+          appendTerminal(`Config Details:\n${JSON.stringify(cfg, null, 2)}`);
           break;
 
         case 'clear':
