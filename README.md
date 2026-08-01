@@ -67,9 +67,6 @@ mcrataway scan --auto --report report.json
 # Scan specific directories or JAR files and automatically quarantine threats
 mcrataway scan /path/to/mods /path/to/suspicious.jar --quarantine
 
-# Specify a custom quarantine directory path
-mcrataway scan /path/to/mods --quarantine --quarantine-dir /path/to/quarantine_folder
-
 # Start the Web UI server
 mcrataway serve --host 127.0.0.1 --port 8765
 
