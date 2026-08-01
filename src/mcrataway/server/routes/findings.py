@@ -21,14 +21,17 @@ async def list_findings(
     """List all per-file findings across jobs, optionally filtered by severity.
 
     Keep only the latest unique finding per file path, and filter out
-    files that no longer exist on disk.
+    files that no longer exist on disk. Jobs dismissed via
+    POST /findings/clear are skipped — see JobRegistry.dismiss_all_findings.
     """
     import os
     registry = request.app.state.job_registry
     wanted = severity.upper() if severity else None
     findings_map: dict[str, dict[str, Any]] = {}
-    
+
     for job in registry.list_jobs():
+        if registry.is_dismissed(job.job_id):
+            continue
         for finding in job.findings:
             fp = finding.get("file_path", "")
             if not fp:
@@ -47,6 +50,19 @@ async def list_findings(
             findings_map[fp] = finding
             
     return list(findings_map.values())
+
+
+@router.post("/clear")
+async def clear_findings(request: Request) -> dict[str, Any]:
+    """Dismiss all currently-visible findings from the Findings view.
+
+    This does not delete any job data or affect the persisted scan
+    History — it only hides them from GET /findings/ until a new scan
+    produces fresh findings. See JobRegistry.dismiss_all_findings.
+    """
+    registry = request.app.state.job_registry
+    registry.dismiss_all_findings()
+    return {"success": True}
 
 
 @router.get("/{finding_id}")

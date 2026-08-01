@@ -962,6 +962,10 @@
           <div class="layout-split">
             
             <div class="split-left">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <div class="card-title" style="margin: 0;">Flagged Files</div>
+                <button class="btn danger sm" id="btn-clear-findings" style="font-size: 10px; padding: 2px 8px; display: none;">Clear Findings</button>
+              </div>
               <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px;">
                 <input type="text" id="findings-search" class="form-control" placeholder="Search paths, hashes, verdicts...">
                 <select id="findings-verdict-filter" class="form-control">
@@ -1827,7 +1831,27 @@
       if (filtered.length === 0) {
         listbox.innerHTML = `<li style="padding:20px; text-align:center; color:var(--text-dim); font-style:italic;">No threat records match selection</li>`;
       }
+
+      const clearBtn = document.getElementById('btn-clear-findings');
+      if (clearBtn) clearBtn.style.display = findingsList.length > 0 ? 'block' : 'none';
     }
+
+    // Clear findings event listener — dismisses the current findings
+    // from view without touching quarantine state or scan History
+    // (see POST /findings/clear).
+    document.getElementById('btn-clear-findings').addEventListener('click', async () => {
+      if (confirm("Clear all flagged files from this view? Quarantined files and scan History are not affected — a new scan will repopulate this list.")) {
+        const res = await apiRequest('/findings/clear', { method: 'POST' });
+        if (res && res.success) {
+          appendTicker('Findings view cleared.');
+          document.getElementById('findings-detail-empty').style.display = 'block';
+          document.getElementById('findings-detail-content').style.display = 'none';
+          loadFindings();
+        } else {
+          appendTicker('Failed to clear findings.', true);
+        }
+      }
+    });
 
     function showFindingDetail(finding) {
       document.getElementById('findings-detail-empty').style.display = 'none';
@@ -1975,15 +1999,14 @@
     // Purge history event listener
     document.getElementById('btn-purge-history').addEventListener('click', async () => {
       if (confirm("Are you sure you want to permanently delete ALL persisted scan history sessions?")) {
-        const data = await apiRequest('/history/');
-        if (data && data.length > 0) {
-          for (const entry of data) {
-            await apiRequest(`/history/${entry.scan_id}`, { method: 'DELETE' });
-          }
-          appendTicker('All scan history sessions cleared.');
+        const res = await apiRequest('/history/purge', { method: 'POST' });
+        if (res && res.success) {
+          appendTicker(`All scan history sessions cleared (${res.purged_count} removed).`);
           document.getElementById('history-report-content').style.display = 'none';
           document.getElementById('history-report-empty').style.display = 'flex';
           loadHistory();
+        } else {
+          appendTicker('Failed to clear scan history.', true);
         }
       }
     });

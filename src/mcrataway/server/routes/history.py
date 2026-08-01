@@ -29,6 +29,17 @@ async def get_history_report(scan_id: str, request: Request) -> dict[str, Any]:
     return report
 
 
+@router.delete("")
+@router.delete("/")
+@router.delete("/purge")
+@router.post("/purge")
+async def purge_history(request: Request) -> dict[str, Any]:
+    """Permanently delete every persisted scan report."""
+    store = request.app.state.history_store
+    count = store.purge()
+    return {"success": True, "purged_count": count}
+
+
 @router.delete("/{scan_id}")
 async def delete_history_entry(scan_id: str, request: Request) -> dict[str, Any]:
     """Permanently delete one past scan's persisted report."""

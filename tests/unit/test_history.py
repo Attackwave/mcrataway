@@ -132,3 +132,26 @@ def test_record_same_scan_id_twice_does_not_duplicate_index_entry(tmp_path: Path
 
     entries = store.list_entries()
     assert len(entries) == 1
+
+
+def test_purge_removes_all_entries_and_reports(tmp_path: Path):
+    store = HistoryStore(history_dir=tmp_path / "history")
+    store.record(_make_job("job1", "2026-01-01T00:00:00"))
+    store.record(_make_job("job2", "2026-01-02T00:00:00"))
+    store.record(_make_job("job3", "2026-01-03T00:00:00"))
+
+    count = store.purge()
+
+    assert count == 3
+    assert store.list_entries() == []
+    assert store.get_report("job1") is None
+    assert store.get_report("job2") is None
+    assert store.get_report("job3") is None
+    assert not (tmp_path / "history" / "reports" / "job1.json").exists()
+    assert not (tmp_path / "history" / "reports" / "job2.json").exists()
+    assert not (tmp_path / "history" / "reports" / "job3.json").exists()
+
+
+def test_purge_empty_store_returns_zero(tmp_path: Path):
+    store = HistoryStore(history_dir=tmp_path / "history")
+    assert store.purge() == 0

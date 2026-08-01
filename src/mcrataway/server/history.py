@@ -201,6 +201,15 @@ class HistoryStore:
         (self.reports_dir / f"{scan_id}.json").unlink(missing_ok=True)
         return True
 
+    def purge(self) -> int:
+        """Permanently delete every history entry and report file.
+        Returns the number of entries removed."""
+        entries = self._read_index()
+        for entry in entries:
+            (self.reports_dir / f"{entry.scan_id}.json").unlink(missing_ok=True)
+        self._write_index([])
+        return len(entries)
+
     def _enforce_limit(self) -> None:
         """Drop oldest entries beyond max_entries, deleting their
         report files — analogous to JobRegistry._cleanup_old_jobs()."""

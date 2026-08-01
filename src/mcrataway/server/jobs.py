@@ -47,6 +47,13 @@ class JobRegistry:
         self.subscribers: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._history = history
+        # Job IDs whose findings the user has dismissed from the
+        # Findings view (see routes/findings.py). Dismissing does not
+        # touch the job itself or its persisted HistoryStore record —
+        # History is a durable audit trail and must survive a Findings
+        # clear; Findings is a "what's currently flagged" working view
+        # that the user should be able to clear without losing history.
+        self.dismissed_job_ids: set[str] = set()
 
     def create_job(self, roots: list[str]) -> str:
         """Create a new scan job and return its ID."""
@@ -74,6 +81,14 @@ class JobRegistry:
 
     def list_jobs(self) -> list[ScanJob]:
         return list(self.jobs.values())
+
+    def dismiss_all_findings(self) -> None:
+        """Mark every currently-visible job as dismissed from the
+        Findings view. Does not touch job data or history."""
+        self.dismissed_job_ids.update(self.jobs.keys())
+
+    def is_dismissed(self, job_id: str) -> bool:
+        return job_id in self.dismissed_job_ids
 
     def update_status(self, job_id: str, status: JobStatus, error: str | None = None) -> None:
         job = self.jobs.get(job_id)
@@ -203,3 +218,4 @@ class JobRegistry:
             self.jobs.pop(jid, None)
             self.subscribers.pop(jid, None)
             self._tasks.pop(jid, None)
+            self.dismissed_job_ids.discard(jid)
