@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react'
 import ScanPage from './pages/ScanPage'
 import FindingsPage from './pages/FindingsPage'
+import HistoryPage from './pages/HistoryPage'
 import RulesPage from './pages/RulesPage'
 import QuarantinePage from './pages/QuarantinePage'
 import SettingsPage from './pages/SettingsPage'
 
-type Page = 'scan' | 'findings' | 'rules' | 'quarantine' | 'settings'
+type Page = 'scan' | 'findings' | 'history' | 'rules' | 'quarantine' | 'settings'
 
 const navItems: { id: Page; label: string; icon: string }[] = [
   { id: 'scan', label: 'Scan', icon: '🔍' },
   { id: 'findings', label: 'Findings', icon: '⚠️' },
+  { id: 'history', label: 'History', icon: '🕘' },
   { id: 'rules', label: 'Rules', icon: '📋' },
   { id: 'quarantine', label: 'Quarantine', icon: '🔒' },
   { id: 'settings', label: 'Settings', icon: '⚙️' },
@@ -55,6 +57,7 @@ export default function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6">
         {currentPage === 'scan' && <ScanPage />}
         {currentPage === 'findings' && <FindingsPage />}
+        {currentPage === 'history' && <HistoryPage />}
         {currentPage === 'rules' && <RulesPage />}
         {currentPage === 'quarantine' && <QuarantinePage />}
         {currentPage === 'settings' && <SettingsPage />}

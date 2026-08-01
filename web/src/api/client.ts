@@ -77,6 +77,30 @@ export interface QuarantineItem {
   restored: boolean
 }
 
+export interface HistorySummary {
+  total_files: number
+  malicious: number
+  suspicious: number
+  clean: number
+}
+
+export interface HistoryEntry {
+  scan_id: string
+  timestamp: string
+  roots: string[]
+  summary: HistorySummary
+}
+
+export interface ScanReport {
+  scan_id: string
+  timestamp: string
+  hostname: string
+  os_name: string
+  scanned_roots: string[]
+  summary: HistorySummary
+  files: Verdict[]
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers = new Headers(options?.headers)
   headers.set('Content-Type', 'application/json')
@@ -137,6 +161,20 @@ export async function getQuarantined(): Promise<QuarantineItem[]> {
 
 export async function restoreQuarantined(sha256: string): Promise<{ success: boolean }> {
   return request(`/quarantine/${sha256}`, { method: 'DELETE' })
+}
+
+export async function getHistory(): Promise<HistoryEntry[]> {
+  return request('/history/')
+}
+
+export async function getHistoryReport(
+  scanId: string,
+): Promise<ScanReport | { error: string }> {
+  return request(`/history/${scanId}`)
+}
+
+export async function deleteHistoryEntry(scanId: string): Promise<{ success: boolean }> {
+  return request(`/history/${scanId}`, { method: 'DELETE' })
 }
 
 export async function whitelistHash(
