@@ -4,9 +4,12 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mcrataway.constants import JobStatus
+
+if TYPE_CHECKING:
+    from mcrataway.server.history import HistoryStore
 
 # Maximum number of completed/failed jobs to retain
 _MAX_COMPLETED_JOBS = 50
@@ -39,10 +42,11 @@ class ScanJob:
 class JobRegistry:
     """Manages scan jobs and WebSocket subscribers."""
 
-    def __init__(self) -> None:
+    def __init__(self, history: "HistoryStore | None" = None) -> None:
         self.jobs: dict[str, ScanJob] = {}
         self.subscribers: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._history = history
 
     def create_job(self, roots: list[str]) -> str:
         """Create a new scan job and return its ID."""
@@ -84,6 +88,16 @@ class JobRegistry:
                 # previously None, which sorted before any timestamp).
                 job.completed_at = datetime.now(UTC).isoformat()
             self._emit(job_id, {"type": "status", "status": status.value, "error": error})
+            # Persist to durable history before the in-memory job is
+            # ever eligible for eviction (see _cleanup_old_jobs below) —
+            # this is what lets a scan's results survive a server
+            # restart. Only COMPLETED jobs are persisted: a FAILED job
+            # has typically empty/partial findings and is not a
+            # meaningful report to keep. This is independent of (and
+            # unconditional on) the in-memory _MAX_COMPLETED_JOBS
+            # eviction below — one bounds RAM, the other bounds disk.
+            if status == JobStatus.COMPLETED and self._history is not None:
+                self._history.record(job)
             # Clean up old completed/failed jobs to bound memory
             if status in (JobStatus.COMPLETED, JobStatus.FAILED):
                 self._cleanup_old_jobs()

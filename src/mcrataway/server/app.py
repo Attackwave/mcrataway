@@ -12,18 +12,22 @@ from mcrataway.config import UserConfig, ensure_config_dir
 from mcrataway.constants import SCANNER_VERSION
 from mcrataway.core.quarantine import QuarantineManager
 from mcrataway.server.auth import ensure_token, verify_origin, verify_token
+from mcrataway.server.history import HistoryStore
 from mcrataway.server.jobs import JobRegistry
-from mcrataway.server.routes import findings, quarantine, reports, rules, scan, system
+from mcrataway.server.routes import findings, history, quarantine, reports, rules, scan, system
 
 # Token auth middleware — only enforced if ~/.mcrataway/token exists.
 # The SPA shell, static assets, and the health endpoint must remain
 # accessible without a token so the UI can boot and report liveness.
 #
 # API routes are registered with fixed prefixes (/scan, /findings,
-# /quarantine, /rules, /reports, /system). Anything that is NOT under
-# one of those prefixes (and not an already-mounted API sub-path) is
-# treated as a public SPA/client-side route or a static asset.
-_API_PREFIXES = ("/scan", "/findings", "/quarantine", "/rules", "/reports", "/system")
+# /quarantine, /rules, /reports, /system, /history). Anything that is
+# NOT under one of those prefixes (and not an already-mounted API
+# sub-path) is treated as a public SPA/client-side route or a static
+# asset.
+_API_PREFIXES = (
+    "/scan", "/findings", "/quarantine", "/rules", "/reports", "/system", "/history",
+)
 _PUBLIC_PATHS = {"/", "/system/health"}
 _STATIC_PREFIX = "/static"
 
@@ -45,7 +49,8 @@ def create_app() -> FastAPI:
     ensure_config_dir()
     ensure_token()
     config = UserConfig.load()
-    job_registry = JobRegistry()
+    history_store = HistoryStore(max_entries=config.history_max_entries)
+    job_registry = JobRegistry(history=history_store)
     q_target = Path(config.quarantine_dir) if config.quarantine_dir else None
     quarantine_manager = QuarantineManager(quarantine_dir=q_target)
 
@@ -91,6 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(rules.router)
     app.include_router(reports.router)
     app.include_router(system.router)
+    app.include_router(history.router)
 
     # SPA entry point + client-side routing fallback
     if static_dir.exists():
@@ -124,5 +130,6 @@ def create_app() -> FastAPI:
     app.state.job_registry = job_registry
     app.state.quarantine_manager = quarantine_manager
     app.state.config = config
+    app.state.history_store = history_store
 
     return app
