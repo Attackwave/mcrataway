@@ -83,6 +83,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      id-token: write  # needed for cosign OIDC keyless signing
 
     steps:
       - name: Download All Binary Artifacts
@@ -91,8 +92,29 @@ jobs:
           path: release-assets
           merge-multiple: true
 
+      - name: Generate SHA256SUMS checksums
+        working-directory: release-assets
+        run: |
+          sha256sum * > ../SHA256SUMS
+          cp ../SHA256SUMS .
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign SHA256SUMS with cosign (keyless OIDC)
+        run: |
+          # Keyless signing via GitHub OIDC — no private key to manage.
+          # Users verify with `cosign verify-blob SHA256SUMS
+          # --certificate-identity-regexp "https://github.com/Attackwave/mcrataway"
+          # --certificate-oidc-issuer "https://token.actions.githubusercontent.com"`
+          cosign sign-blob --yes SHA256SUMS --output-signature SHA256SUMS.sig --output-certificate SHA256SUMS.pem
+
       - name: Publish Release
         uses: softprops/action-gh-release@v3
         with:
-          files: release-assets/*
+          files: |
+            release-assets/*
+            SHA256SUMS
+            SHA256SUMS.sig
+            SHA256SUMS.pem
           generate_release_notes: true
