@@ -27,13 +27,21 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 
 # Trusted public keys, base64-encoded raw Ed25519 public key bytes.
-# Rule packs signed by any key NOT in this list are rejected. This
-# list ships empty by default (no upstream signing key has been
-# provisioned yet) — see docs/RULES.md for how to add one. While
-# empty, ALL remote rule packs are rejected as unsigned, which is the
-# safe default: a scanner should never trust arbitrary downloaded
-# rules without a way to verify their origin.
-TRUSTED_PUBLIC_KEYS_B64: tuple[str, ...] = ()
+# Rule packs signed by any key NOT in this list are rejected. This list
+# is the scanner's trust root — it ships with the binary, not downloaded,
+# so an attacker who controls the download channel cannot also supply
+# their own "trusted" key.
+#
+# The corresponding private key is held as a GitHub Actions secret
+# (MCRATAWAY_RULE_SIGNING_KEY) and is never committed to the repo. The
+# sign-rules workflow (.github/workflows/sign-rules.yml) re-signs every
+# rule pack on each push to main, so the .sig files in the repo are
+# always current. To rotate the key, generate a new keypair
+# (rules.signing.generate_keypair), update the public key here AND the
+# Actions secret, then re-run the workflow.
+TRUSTED_PUBLIC_KEYS_B64: tuple[str, ...] = (
+    "OsjTxfjX7fdD5dmLuN35wDRITQhCWDpEpOrOCSCcsSo=",
+)
 
 
 def generate_keypair() -> tuple[str, str]:

@@ -137,7 +137,7 @@ class VerdictAggregator:
         # without a direct invoke the bytecode scan can see: resolve
         # the hidden class name via reflection, then invoke it
         # indirectly. A benign mod has no reason to hide such a string.
-        for class_name, evs in index._class_evidence.items():
+        for _class_name, evs in index._class_evidence.items():
             has_hidden_dangerous_ref = any(
                 e.context.get("reconstructed") == "1" for e in evs
             )

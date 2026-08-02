@@ -132,8 +132,8 @@ def test_rule_pack_all_rules():
 
 
 def test_rule_pack_deduplication(tmp_path):
-    yaml_content_1 = "pack_id: my_pack\nrules:\n  - id: r1\n    severity: high\n    description: test1\n    strings:\n      - kind: literal\n        value: foo\n"
-    yaml_content_2 = "pack_id: my_pack\nrules:\n  - id: r2\n    severity: low\n    description: test2\n    strings:\n      - kind: literal\n        value: bar\n"
+    yaml_content_1 = "pack_id: my_pack\nrules:\n  - id: r1\n    severity: high\n    description: test1\n    strings:\n      - kind: literal\n        value: foo\n"  # noqa: E501
+    yaml_content_2 = "pack_id: my_pack\nrules:\n  - id: r2\n    severity: low\n    description: test2\n    strings:\n      - kind: literal\n        value: bar\n"  # noqa: E501
 
     file1 = tmp_path / "pack1.yaml"
     file2 = tmp_path / "pack2.yaml"

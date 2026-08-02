@@ -268,7 +268,10 @@ class QuarantineManager:
 
         quarantine_path = self.quarantine_dir / item_id_clean
         if not quarantine_path.exists():
-            found = [p for p in self.quarantine_dir.iterdir() if p.name.lower() == item_id_clean.lower()]
+            found = [
+                p for p in self.quarantine_dir.iterdir()
+                if p.name.lower() == item_id_clean.lower()
+            ]
             if found:
                 quarantine_path = found[0]
             else:

@@ -22,8 +22,7 @@ alone, is what describes on-chain C2.
 import re
 
 from mcrataway.constants import Severity
-from mcrataway.core.evidence import Evidence
-from mcrataway.core.evidence import EvidenceIndex
+from mcrataway.core.evidence import Evidence, EvidenceIndex
 from mcrataway.detectors.base import Detector
 from mcrataway.parsers.classfile import ClassFile
 from mcrataway.parsers.instructions import resolve_invokes

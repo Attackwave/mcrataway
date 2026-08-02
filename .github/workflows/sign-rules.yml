@@ -1,0 +1,92 @@
+name: Sign Rule Packs
+
+# Re-signs every built-in YAML rule pack with the project's Ed25519
+# signing key on every push to main that touches a rule pack, and
+# commits the .sig files back so the published packs are always
+# signed with the current key.
+#
+# The private key lives in the MCRATAWAY_RULE_SIGNING_KEY Actions
+# secret (never in the repo). The corresponding public key ships in
+# src/mcrataway/rules/signing.py (TRUSTED_PUBLIC_KEYS_B64) — that is
+# the scanner's trust root.
+#
+# To rotate the key: generate a new keypair
+# (python -c "from mcrataway.rules.signing import generate_keypair; print(generate_keypair())"),
+# update the public key in signing.py, update the Actions secret, then
+# re-run this workflow.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/mcrataway/rules/packs/*.yaml'
+      - 'src/mcrataway/rules/signing.py'
+      - '.github/workflows/sign-rules.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sign:
+    name: Sign rule packs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+
+      - name: Install scanner
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Sign all rule packs
+        env:
+          MCRATAWAY_RULE_SIGNING_KEY: ${{ secrets.MCRATAWAY_RULE_SIGNING_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+          from mcrataway.rules.signing import sign_data, verify_file
+
+          priv_key = os.environ.get("MCRATAWAY_RULE_SIGNING_KEY")
+          if not priv_key:
+              print("MCRATAWAY_RULE_SIGNING_KEY secret is not set — cannot sign.", file=sys.stderr)
+              sys.exit(1)
+
+          packs_dir = Path("src/mcrataway/rules/packs")
+          changed = False
+          for yaml_path in sorted(packs_dir.glob("*.yaml")):
+              data = yaml_path.read_bytes()
+              sig = sign_data(data, priv_key)
+              sig_path = yaml_path.with_name(yaml_path.name + ".sig")
+              sig_path.write_text(sig)
+              # Verify against the shipped public key before committing.
+              if not verify_file(yaml_path):
+                  print(f"FAIL: {yaml_path} did not verify against shipped public key", file=sys.stderr)
+                  sys.exit(1)
+              print(f"Signed and verified: {yaml_path.name}")
+              changed = True
+
+          if not changed:
+              print("No rule packs found to sign.")
+          PY
+
+      - name: Commit signatures
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add 'src/mcrataway/rules/packs/*.sig'
+          if git diff --cached --quiet; then
+            echo "No signature changes — packs were already signed."
+          else
+            git commit -m "Re-sign rule packs [skip ci]"
+            git push
+          fi

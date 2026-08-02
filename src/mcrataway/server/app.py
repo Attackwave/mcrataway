@@ -17,14 +17,13 @@ from mcrataway.server.jobs import JobRegistry
 from mcrataway.server.routes import findings, history, quarantine, reports, rules, scan, system
 
 # Token auth middleware — only enforced if ~/.mcrataway/token exists.
-# The SPA shell, static assets, and the health endpoint must remain
+# The dashboard shell, static assets, and the health endpoint must remain
 # accessible without a token so the UI can boot and report liveness.
 #
 # API routes are registered with fixed prefixes (/scan, /findings,
 # /quarantine, /rules, /reports, /system, /history). Anything that is
 # NOT under one of those prefixes (and not an already-mounted API
-# sub-path) is treated as a public SPA/client-side route or a static
-# asset.
+# sub-path) is treated as a public client-side route or a static asset.
 _API_PREFIXES = (
     "/scan", "/findings", "/quarantine", "/rules", "/reports", "/system", "/history",
 )
@@ -38,8 +37,8 @@ def _is_public_path(path: str) -> bool:
     # Anything under an API prefix requires auth — even paths that
     # happen to contain a dot in their last segment (e.g. a future
     # /rules/foo.bar resource id). Outside the API prefixes, the
-    # request is either a client-side SPA route (e.g. /scan-page,
-    # /quarantine-page) or a static asset served from the SPA
+    # request is either a client-side route (e.g. /scan-page,
+    # /quarantine-page) or a static asset served from the dashboard
     # fallback, and is public.
     return not any(path == p or path.startswith(p + "/") for p in _API_PREFIXES)
 
@@ -67,9 +66,9 @@ def create_app() -> FastAPI:
 
     # Origin/token guard. Origin is checked for every request (including
     # "public" paths) — a foreign Origin means a browser tab on another
-    # site is driving this API via fetch(), and the SPA shell itself has
-    # no reason to be loaded cross-origin either. Token check applies
-    # only to non-public API paths, same as before.
+    # site is driving this API via fetch(), and the dashboard shell
+    # itself has no reason to be loaded cross-origin either. Token
+    # check applies only to non-public API paths, same as before.
     @app.middleware("http")
     async def token_guard(request: Request, call_next):  # type: ignore[no-untyped-def]
         if not verify_origin(request):
@@ -84,12 +83,12 @@ def create_app() -> FastAPI:
             content={"detail": "Invalid or missing token"},
         )
 
-    # Mount static files (React SPA assets)
+    # Mount static files (self-contained HTML dashboard assets)
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-    # Include routers FIRST so API routes take priority over the SPA fallback
+    # Include routers FIRST so API routes take priority over the dashboard fallback
     app.include_router(scan.router)
     app.include_router(findings.router)
     app.include_router(quarantine.router)
@@ -98,13 +97,13 @@ def create_app() -> FastAPI:
     app.include_router(system.router)
     app.include_router(history.router)
 
-    # SPA entry point + client-side routing fallback
+    # Dashboard entry point + client-side routing fallback
     if static_dir.exists():
         index_html = static_dir / "index.html"
 
         @app.get("/", include_in_schema=False)
         async def serve_spa() -> FileResponse:
-            """Serve the React SPA entry point."""
+            """Serve the dashboard entry point."""
             return FileResponse(str(index_html))
 
         @app.get("/{full_path:path}", include_in_schema=False)

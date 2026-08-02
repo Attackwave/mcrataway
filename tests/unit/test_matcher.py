@@ -161,8 +161,14 @@ class TestRulePackMatching:
         """Patterns from different entries must both count toward a
         multi-string condition — matching must not be entry-local."""
         entries = [
-            ArchiveEntry(name="a.txt", data=b"Runtime reference here", offset=0, size=22, compressed_size=22),
-            ArchiveEntry(name="b.txt", data=b"exec call happens here", offset=0, size=22, compressed_size=22),
+            ArchiveEntry(
+                name="a.txt", data=b"Runtime reference here",
+                offset=0, size=22, compressed_size=22,
+            ),
+            ArchiveEntry(
+                name="b.txt", data=b"exec call happens here",
+                offset=0, size=22, compressed_size=22,
+            ),
         ]
         rule = RuleDefinition(
             rule_id="STREAM_001",

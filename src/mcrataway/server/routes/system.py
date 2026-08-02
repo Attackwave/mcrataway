@@ -1,6 +1,5 @@
-"""System routes — health, roots discovery, directory browser, config management, and rule updates."""
+"""System routes — health, roots, directory browser, config, and rule updates."""
 
-import os
 from pathlib import Path
 from typing import Any
 
@@ -52,10 +51,7 @@ async def get_roots() -> list[str]:
 @router.get("/browse")
 async def browse_directory(path: str = Query(default="")) -> dict[str, Any]:
     """Browse directories and scannable items for the UI folder picker."""
-    if not path:
-        target = Path.home()
-    else:
-        target = Path(path)
+    target = Path.home() if not path else Path(path)
 
     if not target.exists() or not target.is_dir():
         target = Path.home()

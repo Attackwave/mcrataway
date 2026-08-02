@@ -137,7 +137,10 @@ class TestEvasionTechniques:
         ("java.lang.Runtime", "getRuntime", "exec") combined with
         Class.forName in the same class is exactly the pattern
         VerdictAggregator._static_override now escalates."""
-        jar = _make_jar(tmp_path, "refl.jar", {"ReflectiveExec.class": _class_bytes("ReflectiveExec")})
+        jar = _make_jar(
+            tmp_path, "refl.jar",
+            {"ReflectiveExec.class": _class_bytes("ReflectiveExec")},
+        )
         result = engine._scan_single(jar)
         assert result.verdict != Verdict.CLEAN
 

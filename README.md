@@ -67,8 +67,25 @@ mcrataway scan --auto --report report.json
 # Scan specific directories or JAR files and automatically quarantine threats
 mcrataway scan /path/to/mods /path/to/suspicious.jar --quarantine
 
+# CI/CD: exit non-zero when malicious mods are found (default threshold)
+mcrataway scan --auto --fail-on malicious && echo "clean" || echo "threats found"
+
+# Exit non-zero on any suspicious-or-worse finding, or never fail
+mcrataway scan --auto --fail-on suspicious
+mcrataway scan --auto --fail-on none
+
+# Output a SARIF report for GitHub Code Scanning / Defender integration
+mcrataway scan --auto --report findings.sarif
+
 # Start the Web UI server
 mcrataway serve --host 127.0.0.1 --port 8765
+```
+
+**Exit codes:** `0` = scan completed, no findings at/above the `--fail-on`
+threshold · `1` = operational error (no paths, bad config) · `2` = scan
+completed but findings at/above the threshold were present. The default
+threshold is `malicious`; use `--fail-on suspicious` to also flag
+SUSPICIOUS, or `--fail-on none` to always exit 0.
 
 # Use a custom home directory (config, quarantine, history, rules) instead of ~/.mcrataway
 mcrataway --home-dir /data/mcrataway serve

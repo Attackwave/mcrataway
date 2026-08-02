@@ -2,9 +2,9 @@
 
 import json
 import logging
-from pathlib import Path
-import urllib.request
 import urllib.error
+import urllib.request
+from pathlib import Path
 
 import yaml
 
@@ -139,7 +139,10 @@ class RuleUpdater:
         try:
             self._version_state_file.write_text(json.dumps(state))
         except OSError:
-            logger.warning("Could not persist rule pack version state to %s", self._version_state_file)
+            logger.warning(
+                "Could not persist rule pack version state to %s",
+                self._version_state_file,
+            )
 
     @staticmethod
     def _fetch_bytes(url: str, timeout: int) -> bytes:

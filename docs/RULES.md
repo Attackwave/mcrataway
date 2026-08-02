@@ -64,13 +64,17 @@ flagged (and, with auto-quarantine, what gets deleted), every
 downloaded pack must carry a valid detached Ed25519 signature — see
 `src/mcrataway/rules/signing.py`.
 
-**By default, `TRUSTED_PUBLIC_KEYS_B64` is empty, so all remote rule
-packs are rejected.** This is the safe default: without a provisioned
-signing key, there is no way to distinguish a legitimate update from
-one served by a compromised mirror or repository takeover, so remote
-updates simply do not take effect until a key is added.
+The project ships with a provisioned signing key: the public key is
+embedded in `TRUSTED_PUBLIC_KEYS_B64` in `signing.py` (the scanner's
+trust root — it ships with the binary, never downloaded), and the
+corresponding private key is held as a GitHub Actions secret
+(`MCRATAWAY_RULE_SIGNING_KEY`). The
+[sign-rules workflow](../.github/workflows/sign-rules.yml) re-signs
+every built-in rule pack on each push to `main`, committing the `.sig`
+files back to the repo so the published packs are always current.
 
-To provision signing for your own rule-pack distribution:
+To provision signing for your own rule-pack distribution (e.g. a
+fork or a private rule feed):
 
 ```python
 from mcrataway.rules.signing import generate_keypair, sign_data
@@ -87,6 +91,10 @@ data = open("suspicious_indicators.yaml", "rb").read()
 signature_b64 = sign_data(data, private_key_b64)
 open("suspicious_indicators.yaml.sig", "w").write(signature_b64)
 ```
+
+To rotate the project key: generate a new keypair, update the public
+key in `signing.py`, update the `MCRATAWAY_RULE_SIGNING_KEY` Actions
+secret, then re-run the sign-rules workflow.
 
 `fetch_remote_rules()` fetches `<url>` and `<url>.sig`, verifies the
 signature against the trust root, and only writes the pack to disk on

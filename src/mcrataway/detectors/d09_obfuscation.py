@@ -44,6 +44,13 @@ _MIN_DISPATCHER_TARGETS = 4
 # (the "jump back to re-dispatch" at the end of each state's body).
 _MIN_GOTO_TO_TARGET_RATIO = 0.5
 
+# Opcodes that indicate a loop-bound comparison rather than a
+# pure state-variable dispatch when found shortly before a
+# switch: if_icmp* family (159-166), arraylength (190),
+# if_acmp* (165-166, already covered), and the generic
+# if<cond> family used against a loop counter (153-158).
+_LOOP_COMPARISON_OPCODES = set(range(153, 167)) | {190}
+
 
 class D09Obfuscation(Detector):
     @property
@@ -124,13 +131,6 @@ class D09Obfuscation(Detector):
             return []
 
         goto_count = sum(1 for i in instructions if i.opcode_name == "goto")
-
-        # Opcodes that indicate a loop-bound comparison rather than a
-        # pure state-variable dispatch when found shortly before a
-        # switch: if_icmp* family (159-166), arraylength (190),
-        # if_acmp* (165-166, already covered), and the generic
-        # if<cond> family used against a loop counter (153-158).
-        _LOOP_COMPARISON_OPCODES = set(range(153, 167)) | {190}
 
         evidence: list[Evidence] = []
         for switch in switches:

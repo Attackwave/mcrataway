@@ -4,7 +4,7 @@ plain-language summaries, and significance-based finding ordering.
 
 from mcrataway.constants import Severity, Verdict
 from mcrataway.reporting.enrichment import context_for, finding_sort_key
-from mcrataway.reporting.model import Finding, FileReport
+from mcrataway.reporting.model import FileReport, Finding
 
 
 def test_known_detector_has_mitre_mapping() -> None:

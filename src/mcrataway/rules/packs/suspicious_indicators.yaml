@@ -1,4 +1,5 @@
 pack_id: "suspicious_indicators"
+pack_version: "2026-08-02"
 description: "Generic high-suspicion patterns found in malware"
 rules:
   - id: "session_token_exfil"

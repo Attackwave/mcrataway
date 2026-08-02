@@ -14,6 +14,15 @@ if TYPE_CHECKING:
 # Maximum number of completed/failed jobs to retain
 _MAX_COMPLETED_JOBS = 50
 
+# Maximum number of concurrently *running* (PENDING or RUNNING) scan
+# jobs. Each scan job spawns up to ``config.max_workers`` threads, so
+# unbounded concurrent jobs multiply into unbounded threads/memory.
+# An authenticated caller (or a stuck UI that re-POSTs, or a
+# misconfigured automation) can otherwise exhaust the host. The cap is
+# deliberately small: scanning is I/O- and CPU-bound, and queueing is
+# cheaper than thrashing.
+_MAX_RUNNING_JOBS = 2
+
 # Maximum number of events to buffer per job for late-subscriber replay.
 # Without a cap, a 100k-file scan would buffer 100k+ events in memory
 # alongside the job's findings list. The tail is kept so recent
@@ -55,8 +64,21 @@ class JobRegistry:
         # that the user should be able to clear without losing history.
         self.dismissed_job_ids: set[str] = set()
 
-    def create_job(self, roots: list[str]) -> str:
-        """Create a new scan job and return its ID."""
+    def create_job(self, roots: list[str]) -> str | None:
+        """Create a new scan job and return its ID, or None if the
+        concurrent running-job cap (:data:`_MAX_RUNNING_JOBS`) is hit.
+
+        Each running job holds worker threads and in-memory archive
+        state; unbounded concurrency exhausts the host. The caller
+        (scan route) translates None into HTTP 429 so the client can
+        retry when an existing scan finishes.
+        """
+        running = sum(
+            1 for j in self.jobs.values()
+            if j.status in (JobStatus.PENDING, JobStatus.RUNNING)
+        )
+        if running >= _MAX_RUNNING_JOBS:
+            return None
         job_id = str(uuid.uuid4())
         self.jobs[job_id] = ScanJob(
             job_id=job_id,

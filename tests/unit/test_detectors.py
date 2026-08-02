@@ -137,8 +137,9 @@ def test_d13_mixin_targeting_session_flagged():
     largest blind spot the other detectors have, since a Mixin can
     rewrite the method that already holds a session token without
     ever calling any of the APIs D01-D11 look for."""
-    from mcrataway.detectors.d13_mixin_coremod import D13MixinCoremod
     import json
+
+    from mcrataway.detectors.d13_mixin_coremod import D13MixinCoremod
 
     det = D13MixinCoremod()
     config = json.dumps({
@@ -153,8 +154,9 @@ def test_d13_mixin_targeting_session_flagged():
 
 
 def test_d13_mixin_targeting_benign_class_not_flagged():
-    from mcrataway.detectors.d13_mixin_coremod import D13MixinCoremod
     import json
+
+    from mcrataway.detectors.d13_mixin_coremod import D13MixinCoremod
 
     det = D13MixinCoremod()
     config = json.dumps({

@@ -58,7 +58,7 @@ class HistoryEntry:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "HistoryEntry":
+    def from_dict(cls, data: dict[str, Any]) -> HistoryEntry:
         summary = data.get("summary", {})
         return cls(
             scan_id=data.get("scan_id", ""),
@@ -71,7 +71,7 @@ class HistoryEntry:
         )
 
     @classmethod
-    def from_report(cls, report: ScanReport) -> "HistoryEntry":
+    def from_report(cls, report: ScanReport) -> HistoryEntry:
         return cls(
             scan_id=report.scan_id,
             timestamp=report.timestamp,
@@ -83,7 +83,7 @@ class HistoryEntry:
         )
 
 
-def build_scan_report_from_job(job: "ScanJob") -> ScanReport:
+def build_scan_report_from_job(job: ScanJob) -> ScanReport:
     """Reconstruct a ScanReport from a ScanJob's accumulated findings.
 
     This is the same job.findings-dict -> Finding/FileReport/ScanReport
@@ -160,7 +160,7 @@ class HistoryStore:
         self.index_path = self.history_dir / "index.json"
         self.max_entries = max_entries
 
-    def record(self, job: "ScanJob") -> None:
+    def record(self, job: ScanJob) -> None:
         """Build a ScanReport from job, persist it, and enforce the
         retention limit."""
         report = build_scan_report_from_job(job)

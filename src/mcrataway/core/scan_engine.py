@@ -1,5 +1,6 @@
 """Core scan engine — orchestrates the full pipeline per artifact."""
 
+import contextlib
 import fnmatch
 import hashlib
 from collections.abc import Callable, Iterator
@@ -136,6 +137,7 @@ class ScanEngine:
             try:
                 result = self._scan_single(f, keep_evidence_index=keep_evidence_index)
                 self.maybe_quarantine(f, result)
+                self._audit_verdict(f, result)
                 return result
             except Exception as exc:
                 return ArtifactResult(
@@ -185,8 +187,14 @@ class ScanEngine:
         it was not. The outcome is now recorded on
         ``result.metadata`` so callers (CLI, server report) can surface
         it instead of it disappearing silently.
+
+        Every quarantine attempt (success, failure, or no-op) is also
+        written to the audit log (``~/.mcrataway/audit.log``) for
+        incident-response traceability — "was this file isolated, and
+        when?" must be answerable after the fact.
         """
         from mcrataway.core.quarantine import QuarantineOutcome
+        from mcrataway.reporting.audit_log import log_quarantine
 
         is_mal = result.verdict == Verdict.MALICIOUS
         is_susp = result.verdict == Verdict.SUSPICIOUS
@@ -198,8 +206,35 @@ class ScanEngine:
                 result.metadata["quarantine_failed"] = True
             elif qresult.outcome is QuarantineOutcome.SUCCESS:
                 result.metadata["quarantined"] = True
+            log_quarantine(
+                file_path=str(path),
+                file_hash=result.file_hash,
+                outcome=qresult.outcome.value,
+                quarantine_id=qresult.manifest.sha256 if qresult.manifest else None,
+            )
             # ALREADY_QUARANTINED / SOURCE_MISSING are not failures —
             # nothing to surface for either.
+
+    @staticmethod
+    def _audit_verdict(path: Path, result: ArtifactResult) -> None:
+        """Write a per-file verdict event to the audit log.
+
+        Non-MALICIOUS/SUSPICIOUS verdicts are logged too — the audit
+        trail's value is answering "was this file ever scanned, and
+        what did the scanner conclude?", which requires recording
+        CLEAN verdicts as well as threats.
+        """
+        from mcrataway.reporting.audit_log import log_scan_verdict
+
+        skipped = result.metadata.get("skipped_entries")
+        log_scan_verdict(
+            file_path=str(path),
+            file_hash=result.file_hash,
+            verdict=result.verdict.value,
+            confidence=result.confidence,
+            finding_count=len(result.findings),
+            skipped=skipped,
+        )
 
     def _scan_single(self, path: Path, *, keep_evidence_index: bool = False) -> ArtifactResult:
         """Scan a single file."""
@@ -417,10 +452,8 @@ class ScanEngine:
                 manifest_entries[entry.name] = entry.data
 
             if entry.name.startswith("META-INF/") and entry.name.endswith(".SF"):
-                try:
+                with contextlib.suppress(Exception):
                     sf_contents[entry.name] = entry.data.decode("utf-8", errors="replace")
-                except Exception:
-                    pass
 
             for rule_pack, state in match_states:
                 state.feed_entry(rule_pack.rules, entry)

@@ -45,3 +45,4 @@ report.json
 Thumbs.db
 .idea/
 .vscode/
+.coverage

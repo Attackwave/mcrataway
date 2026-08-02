@@ -103,7 +103,7 @@ class StringPattern:
     def __init__(self, kind: str, value: str) -> None:
         self.kind = kind
         self.value = value
-        self._compiled: "regex.Pattern[str] | None" = None
+        self._compiled: regex.Pattern[str] | None = None
         self._hex_bytes: bytes | None = None
         self._redos_blocked = False
 

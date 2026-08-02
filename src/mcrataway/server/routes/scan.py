@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 
 from mcrataway.constants import JobStatus
 from mcrataway.discovery.os_paths import discover_roots
@@ -81,6 +81,14 @@ async def start_scan(
         actual_roots = []
 
     job_id = registry.create_job(actual_roots)
+    if job_id is None:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "Too many concurrent scan jobs — finish or wait for an "
+                "existing scan to complete before starting another."
+            ),
+        )
 
     async def run_background() -> None:
         try:
