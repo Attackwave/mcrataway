@@ -3,7 +3,7 @@
 [![CI](https://github.com/Attackwave/mcrataway/actions/workflows/ci.yml/badge.svg)](https://github.com/Attackwave/mcrataway/actions/workflows/ci.yml)
 [![Build](https://github.com/Attackwave/mcrataway/actions/workflows/build.yml/badge.svg)](https://github.com/Attackwave/mcrataway/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 
 **mcRATAway** is a high-performance, open-source static malware scanner specifically engineered to inspect Minecraft mods (`.jar`), resource packs, datapacks, shader packs, and configuration scripts. It detects malicious payloads, Remote Access Trojans (RATs), session token stealers (Discord, Mojang/Microsoft auth), multi-stage loaders, and obfuscated Java bytecodes.
 
@@ -11,14 +11,17 @@
 
 ## 🌟 Key Features
 
-* 🚀 **Pure-Python Bytecode Analysis**: Operates directly on Java class bytecodes (`.class` files inside `.jar` archives) without requiring a installed Java Runtime Environment (JRE/JDK).
-* 🔍 **Cross-Platform Auto-Discovery**: Automatically locates standard Minecraft installations, modloaders, and third-party launchers (Prism Launcher, CurseForge, Modrinth, MultiMC, GDLauncher) across **Linux**, **macOS**, and **Windows**.
-* 🎯 **14 Capability Detectors & Correlation Gates**: Combines behavioral bytecode detection with class-scoped correlation gates to minimize false positives while identifying hidden malicious patterns.
-* 🛡️ **YAML Threat Intelligence Rules**: Supports custom and dynamically updateable YAML rule packs for rapid threat signature distribution against new obfuscators and malware variants.
+* 🚀 **Pure-Python Bytecode Analysis**: Operates directly on Java class bytecodes (`.class` files inside `.jar` archives) without requiring an installed Java Runtime Environment (JRE/JDK).
+* 🔍 **Cross-Platform Auto-Discovery**: Automatically locates standard Minecraft installations, modloaders, and third-party launchers (Prism Launcher, CurseForge, Modrinth, MultiMC, GDLauncher) across **Linux**, **macOS**, and **Windows**. Also discovers **Bukkit/Spigot/Paper server** installations and their `plugins/` directories.
+* 🎯 **14 Capability Detectors & Correlation Gates**: Combines behavioral bytecode detection with class-scoped correlation gates and behavior-chain analysis to minimize false positives while identifying hidden malicious patterns.
+* 🛡️ **YAML Threat Intelligence Rules**: Supports custom and dynamically updateable YAML rule packs for rapid threat signature distribution against new obfuscators and malware variants. Rule packs are Ed25519-signed and verified against a built-in trust root.
 * 🔒 **Reversible Safe Quarantine**: Isolates suspicious or infected files into a secure directory accompanied by JSON metadata manifests for safe analysis or easy restoration.
+* 📋 **Known-Good Hash Reputation**: Optional offline lookup of SHA-256 hashes for verified-clean mods from Modrinth/CurseForge — a hash match means the file is byte-identical to the author-published version, eliminating false positives on popular mods.
+* 📄 **SARIF & JSON Report Output**: SARIF 2.1.0 output for GitHub Code Scanning / Microsoft Defender integration, plus JSON and HTML reports. MITRE ATT&CK mappings included per finding.
+* 📊 **Audit Log**: Append-only JSONL audit trail of every scan verdict and quarantine action, for incident response and compliance.
 * 💻 **Web UI & Headless CLI**:
   * **Web Dashboard**: Self-contained HTML/CSS/JS interface served by FastAPI with real-time WebSocket scan progress, interactive rule toggles, and quarantine management.
-  * **Headless CLI**: Scriptable command-line interface ideal for automated server checks, CI/CD pipelines, and bulk modpack verification.
+  * **Headless CLI**: Scriptable command-line interface ideal for automated server checks, CI/CD pipelines, and bulk modpack verification. Supports `--fail-on {malicious,suspicious,none}` exit codes for CI gating.
 
 ---
 
@@ -36,12 +39,16 @@ mcRATAway features 14 specialized capability detectors:
 | **D06** | **Unsafe Deserialization** | Pinpoints vulnerable `ObjectInputStream.readObject()` payload execution. |
 | **D07** | **Native Library Loading** | Flags `System.load()` / JNI native dynamic library payloads (`.so`, `.dll`, `.dylib`). |
 | **D08** | **Credential & Token Theft** | Detects targeting of Minecraft session tokens, Discord tokens, and browser credentials. |
-| **D09** | **Obfuscation Analysis** | Measures code entropy, identifies S-box ciphers, and flags synthetic class structures. |
+| **D09** | **Obfuscation Analysis** | Measures code entropy, identifies S-box ciphers, flags synthetic class structures, and detects control-flow flattening via back-jump analysis. |
 | **D10** | **Reflection Indirect** | Uncovers hidden invocations using `MethodHandles` and `LambdaMetafactory`. |
 | **D11** | **On-Chain C2** | Detects blockchain-based command-and-control infrastructure (e.g., Ethereum `eth_call` lookups). |
 | **D12** | **Resource & Datapack Exploits** | Scans `.png`, `.mcfunction`, and JSON assets for buffer overflow and script abuse. |
-| **D13** | **Mixin / Coremod Abuse** | Flags Fabric/Forge Mixins and coremods targeting session/auth/network-handling classes — bytecode rewriting that never needs to call any API the other detectors watch for. |
+| **D13** | **Mixin / Coremod Abuse** | Flags Fabric/Forge Mixins and coremods targeting session/auth/network-handling classes — bytecode rewriting that never needs to call any API the other detectors watch for. `@Redirect`/`@Overwrite` on auth-sensitive targets is rated CRITICAL. |
 | **D14** | **Signature / Manifest Tamper** | Detects classes added to a JAR after it was signed (trojanized mods) and `Class-Path` manifest entries loading external JARs. |
+
+**String reconstruction** techniques detected: byte-array hiding, char-array hiding, XOR ciphers (generic + weedhack S-box), Base64-encoded strings, and AES decryption with an embedded key literal.
+
+**Modloader nested-jar awareness**: Fabric `jars` array and Forge JarJar `metadata.json` are parsed to distinguish declared nested dependencies from undeclared payload archives (the fractureiser Stage-0 evasion technique).
 
 ---
 
@@ -77,6 +84,9 @@ mcrataway scan --auto --fail-on none
 # Output a SARIF report for GitHub Code Scanning / Defender integration
 mcrataway scan --auto --report findings.sarif
 
+# Use a custom home directory (config, quarantine, history, rules) instead of ~/.mcrataway
+mcrataway --home-dir /data/mcrataway serve
+
 # Start the Web UI server
 mcrataway serve --host 127.0.0.1 --port 8765
 ```
@@ -86,10 +96,6 @@ threshold · `1` = operational error (no paths, bad config) · `2` = scan
 completed but findings at/above the threshold were present. The default
 threshold is `malicious`; use `--fail-on suspicious` to also flag
 SUSPICIOUS, or `--fail-on none` to always exit 0.
-
-# Use a custom home directory (config, quarantine, history, rules) instead of ~/.mcrataway
-mcrataway --home-dir /data/mcrataway serve
-```
 
 ### Web UI Dashboard
 
@@ -111,23 +117,24 @@ Then open your browser at `http://127.0.0.1:8765` to:
 `--host`/`--port` (and `config`'s equivalents like quarantine triggers)
 are **not** the same thing: `--host`/`--port` only affect the current
 `mcrataway serve` invocation and are never persisted — the next time
-you run `mcrataway serve` without flags, it always starts back on the
-default `127.0.0.1:8765`. Everything configurable from the Settings
+you run `mcrataway serve` without flags, it always starts back on
+the default `127.0.0.1:8765`. Everything configurable from the Settings
 tab, on the other hand, **is** saved to `~/.mcrataway/config.yaml` and
 persists across restarts.
 
 `~/.mcrataway` itself — the folder holding `config.yaml`, `quarantine/`,
-`history/`, `rules/`, and the auth `token` file — defaults to a hidden
-folder under the OS-reported home directory on every platform. Override
-it with `mcrataway --home-dir /path/to/dir <command>` (must come before
-the subcommand). Unlike `--host`/`--port`, you only need to pass this
-once: it's persisted to `~/.config/mcrataway/home_dir`, so every later
-plain `mcrataway` call picks it back up automatically instead of
-silently forking a second tree back under `~/.mcrataway`. Run
-`mcrataway --home-dir default <command>` to forget the override and go
-back to the default location. `MCRATAWAY_HOME` is also honored as a
-one-off, non-persisted override (e.g. for tests or portable installs)
-and takes priority over the persisted pointer file.
+`history/`, `rules/`, `reputation/`, and the auth `token` file —
+defaults to a hidden folder under the OS-reported home directory on
+every platform. Override it with `mcrataway --home-dir /path/to/dir
+<command>` (must come before the subcommand). Unlike `--host`/`--port`,
+you only need to pass this once: it's persisted to
+`~/.config/mcrataway/home_dir`, so every later plain `mcrataway` call
+picks it back up automatically instead of silently forking a second
+tree back under `~/.mcrataway`. Run `mcrataway --home-dir default
+<command>` to forget the override and go back to the default location.
+`MCRATAWAY_HOME` is also honored as a one-off, non-persisted override
+(e.g. for tests or portable installs) and takes priority over the
+persisted pointer file.
 
 ---
 
@@ -213,11 +220,17 @@ sha256sum -c SHA256SUMS --ignore-missing
 ## 🧪 Running Tests & Quality Checks
 
 ```bash
-# Run unit & integration test suite (100+ tests)
+# Run unit & integration test suite (290+ tests)
 pytest
 
 # Run static type checking
 mypy src/
+
+# Run linter
+ruff check src/ tests/
+
+# Run with coverage gate
+pytest --cov=mcrataway --cov-fail-under=78
 ```
 
 ---
