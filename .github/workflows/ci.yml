@@ -42,3 +42,43 @@ jobs:
       - name: Run pytest Suite with coverage gate
         run: |
           pytest --cov=mcrataway --cov-fail-under=78 --cov-report=term-missing
+
+  supply-chain:
+    name: Supply Chain (pip-audit + SBOM)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" pip-audit cyclonedx-bom
+
+      - name: Run pip-audit (dependency vulnerability scan)
+        run: |
+          # Audit the installed environment for known vulnerabilities.
+          # A security scanner that itself ships vulnerable deps is
+          # the worst-case narrative — this gates the CI on a clean
+          # dependency tree.
+          pip-audit --strict
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          # Generate a Software Bill of Materials for the installed
+          # package — this is what users and security teams use to
+          # track what's in the scanner they're running.
+          cyclonedx-py environment -o sbom.json --schema-version 1.5
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: sbom.json
+          if-no-files-found: error

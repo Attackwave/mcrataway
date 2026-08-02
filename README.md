@@ -188,6 +188,26 @@ The resulting binary will be output to `dist/mcrataway` (or `dist/mcrataway.exe`
 
 Standalone binaries for **Linux**, **Windows**, and **macOS** are also automatically built on every commit via [GitHub Actions](.github/workflows/build.yml) and available under Releases / Workflow Artifacts.
 
+### Verifying Release Binaries
+
+Release binaries are signed with [cosign](https://github.com/sigstore/cosign) (keyless OIDC signing via GitHub Actions). Each release includes:
+
+- `SHA256SUMS` — checksums for all binaries
+- `SHA256SUMS.sig` — cosign signature over `SHA256SUMS`
+- `SHA256SUMS.pem` — cosign signing certificate
+
+Verify a downloaded binary before running it:
+
+```bash
+# 1. Verify the checksums file signature
+cosign verify-blob SHA256SUMS \
+  --certificate-identity-regexp "https://github.com/Attackwave/mcrataway" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+
+# 2. Verify the binary matches the checksum
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
 ---
 
 ## 🧪 Running Tests & Quality Checks
