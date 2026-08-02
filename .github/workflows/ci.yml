@@ -67,7 +67,12 @@ jobs:
           # A security scanner that itself ships vulnerable deps is
           # the worst-case narrative — this gates the CI on a clean
           # dependency tree.
-          pip-audit --strict
+          # --strict: exit non-zero on vulnerabilities found.
+          # --skip-editable: skip the local editable install of
+          #   mcrataway itself (it's not on PyPI and can't be audited
+          #   — only its dependencies, which are the actual supply-
+          #   chain surface, are checked).
+          pip-audit --strict --skip-editable
 
       - name: Generate CycloneDX SBOM
         run: |
