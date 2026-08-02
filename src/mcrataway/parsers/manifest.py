@@ -1,9 +1,12 @@
-"""Parse mod manifest files: fabric.mod.json, mcmod.info, mods.toml, META-INF."""
+"""Parse mod manifest files: fabric.mod.json, mcmod.info, mods.toml,
+META-INF, plugin.yml (Bukkit/Spigot/Paper)."""
 
 import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
+
+import yaml
 
 
 @dataclass
@@ -206,6 +209,51 @@ def parse_jarjar_metadata(data: bytes) -> list[str]:
     return paths
 
 
+def parse_plugin_yml(data: bytes) -> ModMetadata:
+    """Parse a Bukkit/Spigot/Paper ``plugin.yml`` file.
+
+    Server-side plugins declare their main class, API version,
+    commands, and permissions in this file. The ``main`` field is
+    the entry point class — a plugin that declares a ``main`` class
+    in a package like ``com.evil.backdoor`` with broad permissions
+    is a signal worth recording.
+    """
+    meta = ModMetadata(loader="bukkit")
+    try:
+        text = data.decode("utf-8", errors="replace")
+    except Exception:
+        return meta
+
+    # Basic YAML subset parsing (plugin.yml is simple enough that a
+    # full YAML parser isn't needed — and yaml.safe_load would work
+    # too, but this keeps the manifest parser dependency-free for
+    # this path).
+    try:
+        obj = yaml.safe_load(text)
+    except Exception:
+        return meta
+
+    if not isinstance(obj, dict):
+        return meta
+
+    meta.raw = obj
+    meta.main_class = str(obj.get("main", ""))
+    meta.name = str(obj.get("name", ""))
+    meta.version = str(obj.get("version", "unknown"))
+
+    authors = obj.get("authors", [])
+    if isinstance(authors, list):
+        meta.authors = [str(a) for a in authors]
+    elif isinstance(authors, str):
+        meta.authors = [authors]
+
+    commands = obj.get("commands", {})
+    if isinstance(commands, dict):
+        meta.entrypoints = list(commands.keys())
+
+    return meta
+
+
 def parse_archive_manifest(entries: dict[str, bytes]) -> ModMetadata:
     """Detect and parse the mod manifest from archive entries.
 
@@ -218,6 +266,8 @@ def parse_archive_manifest(entries: dict[str, bytes]) -> ModMetadata:
         meta: ModMetadata = parse_fabric_mod_json(entries["fabric.mod.json"])
     elif "mcmod.info" in entries:
         meta = parse_mcmod_info(entries["mcmod.info"])
+    elif "plugin.yml" in entries:
+        meta = parse_plugin_yml(entries["plugin.yml"])
     elif "META-INF/MANIFEST.MF" in entries:
         meta = parse_manifest_mf(entries["META-INF/MANIFEST.MF"])
     else:

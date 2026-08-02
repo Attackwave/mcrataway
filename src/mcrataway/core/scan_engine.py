@@ -436,7 +436,7 @@ class ScanEngine:
         manifest_entries: dict[str, bytes] = {}
         manifest_names = {
             "fabric.mod.json", "mcmod.info", "META-INF/MANIFEST.MF",
-            "META-INF/jarjar/metadata.json",
+            "META-INF/jarjar/metadata.json", "plugin.yml",
         }
 
         # Collected for D14 (signature/manifest tamper detection),
