@@ -48,6 +48,8 @@ mcrataway = [
     "server/static/**/*",
     "rules/packs/*.yaml",
     "rules/packs/*.yaml.sig",
+    "reputation/*.yaml",
+    "reputation/*.yaml.sig",
 ]
 
 [tool.ruff]

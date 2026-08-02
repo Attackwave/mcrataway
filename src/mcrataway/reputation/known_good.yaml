@@ -1,0 +1,28 @@
+pack_version: '2026-08-02'
+description: "Known-good mod hashes \u2014 verified-clean files from Modrinth/CurseForge"
+entries:
+- sha256: 4d7ab708ec4f99092e5ec83b21c4e038f04f94644211d61b9576bcb726ddbf4e
+  name: AI-Improvements-26.1.1-0.5.4
+  version: '1.0'
+  loader: unknown
+  source: manual
+- sha256: 993fd735d9934d06156cb2c9e473b72c59199fe992ea46575bab5af8a8548c31
+  name: AdvancedLootInfo-fabric-26.2-1.12.1
+  version: '1.0'
+  loader: unknown
+  source: manual
+- sha256: 596b9f66c1d146d39641f30fec71a8a20425b5790b9d0ebe0bb2e2daa523a9a5
+  name: AdvancementPlaques-26.2-forge-1.7.2
+  version: '1.0'
+  loader: unknown
+  source: manual
+- sha256: 9e44f50e1cc8c6165cc18a7ede25d4acb4c507d206bdeccc67dded8d181aa628
+  name: AgeingSpawners-26.2-12.0.0
+  version: '1.0'
+  loader: unknown
+  source: manual
+- sha256: b761292e2d0e5bdba48f274cc7a8659f7ab7ea1c0173152290e36826d79d6cf6
+  name: AmbientEnvironment-fabric-26.2-26.2.1
+  version: '1.0'
+  loader: unknown
+  source: manual
