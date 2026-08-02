@@ -133,10 +133,18 @@ def test_d12_archive_entry_mcmeta_with_eval():
 
 def test_d13_mixin_targeting_session_flagged():
     """A mixin config whose declared mixin class name suggests it
-    targets Session/MinecraftClient must be flagged — this is the
-    largest blind spot the other detectors have, since a Mixin can
-    rewrite the method that already holds a session token without
-    ever calling any of the APIs D01-D11 look for."""
+    targets auth-sensitive classes (Session, YggdrasilAuthentication)
+    must be flagged — this is the largest blind spot the other
+    detectors have, since a Mixin can rewrite the method that already
+    holds a session token without ever calling any of the APIs
+    D01-D11 look for.
+
+    Note: "MinecraftClient" was removed from the sensitive-target list
+    because virtually every rendering/input mod has a "MinecraftClientMixin"
+    that targets it for non-auth purposes (camera, input, tick hooks).
+    Only auth-specific classes (Session, Yggdrasil, packet encoder/decoder)
+    are flagged now.
+    """
     import json
 
     from mcrataway.detectors.d13_mixin_coremod import D13MixinCoremod
@@ -144,13 +152,13 @@ def test_d13_mixin_targeting_session_flagged():
     det = D13MixinCoremod()
     config = json.dumps({
         "package": "com.evil.mixins",
-        "mixins": ["MixinMinecraftClient", "MixinSession"],
+        "mixins": ["MixinSession", "MixinYggdrasilAuthenticationService"],
     }).encode()
     evs = det.analyze_archive_entry("evil.mixins.json", config)
     assert len(evs) == 2
     assert all(e.severity.name == "MEDIUM" for e in evs)
-    assert any("MinecraftClient" in e.description for e in evs)
     assert any("Session" in e.description for e in evs)
+    assert any("YggdrasilAuthentication" in e.description for e in evs)
 
 
 def test_d13_mixin_targeting_benign_class_not_flagged():

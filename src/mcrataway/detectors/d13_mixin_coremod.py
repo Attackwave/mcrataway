@@ -8,51 +8,144 @@ Catches:
   Mixin targeting e.g. the session-token accessor never needs to call
   any of the APIs D01-D11 look for. It just edits the method that
   already has the token.
+- @Redirect and @Overwrite annotations on auth-sensitive targets —
+  these fully replace or reroute behavior at the injection point, as
+  opposed to @Inject (which runs alongside the original method).
 - FMLCorePlugin / coremod declarations in META-INF/MANIFEST.MF, which
-  is Forge's older (pre-Mixin) equivalent capability: a coremod can
-  register its own ClassLoader transformer with full bytecode access
-  before any other mod code runs.
+  is Forge's older (pre-Mixin) equivalent capability.
 
 This detector operates on archive entries (mixin JSON configs, the
-manifest) rather than on individual parsed classes, since the
-"target" a Mixin edits is declared in JSON, not derivable from the
-Mixin class's own bytecode alone.
+manifest) and on individual parsed classes (for @Mixin/@Redirect
+annotation analysis), since the "target" a Mixin edits is declared
+both in JSON config and in the class's @Mixin annotation.
 """
 
 import json
+import re
 
 from mcrataway.constants import Severity
 from mcrataway.core.evidence import Evidence
 from mcrataway.detectors.base import Detector
 from mcrataway.parsers.classfile import ClassFile
 
-# Fully-qualified (dotted, as Mixin configs write them) or partial
-# target-class fragments that indicate a mixin is rewriting
-# session/auth/network-critical game code. Includes both Mojang
-# obfuscated (class_NNN / method_NNN, "intermediary" naming used by
-# Fabric before remapping) and Yarn-remapped names, since a shipped
-# mod jar may reference either depending on the mapping it was built
-# against.
-_SENSITIVE_TARGET_FRAGMENTS = (
-    "Session",
-    "MinecraftClient",
-    "class_310",  # MinecraftClient (intermediary)
+# Auth-sensitive target class fragments — narrowed from the previous
+# broad list (which included "MinecraftClient" and "Session" and thus
+# matched every rendering/input mod). Only classes that hold or access
+# credentials, auth tokens, or the auth handshake belong here: a mixin
+# into MinecraftClient for camera/rendering is normal; a mixin into
+# YggdrasilAuthenticationService or the Session token accessor is not.
+#
+# Both Mojang obfuscated (class_NNN / method_NNN, "intermediary" naming
+# used by Fabric before remapping) and Yarn-remapped names are listed,
+# since a shipped mod jar may reference either depending on the mapping
+# it was built against.
+_SENSITIVE_AUTH_TARGETS = (
+    # Yarn names
     "YggdrasilAuthenticationService",
     "YggdrasilUserApiService",
-    "SocketAddress",
-    "ClientConnection",
-    "class_2535",  # ClientConnection (intermediary)
-    "NetworkState",
-    "PacketEncoder",
-    "PacketDecoder",
-    "AbstractSocketConnection",
+    "MinecraftSession",
+    "net/minecraft/client/util/Session",
+    "net/minecraft/util/Session",
+    # Intermediary names — verified against Yarn's intermediary mapping:
+    #   class_320 = MinecraftClient (NOT here — too broad, every rendering mod targets it)
+    #   class_321 = Session (the actual session/token holder)
+    #   class_332 = YggdrasilAuthenticationService
+    #   class_45 = YggdrasilUserApiService
+    # class_3218 (ServerWorld), class_4587/4588/4597 (screens) are NOT
+    # auth-sensitive and were incorrectly listed before.
+    "class_321",  # Session (intermediary)
+    "class_332",  # YggdrasilAuthenticationService (intermediary)
+    "class_45",  # YggdrasilUserApiService (intermediary)
 )
 
-# Mixin annotation types that fully replace or reroute behavior at the
-# injection point, as opposed to @Inject (which runs alongside the
-# original method) — @Redirect and @Overwrite are far more capable of
-# silently substituting attacker logic for a security-relevant call.
-_HIGH_IMPACT_MIXIN_ANNOTATIONS = ("@Redirect", "@Overwrite")
+# For mixin *config* class-name matching (JSON configs, where the mixin
+# class is named after its target, e.g. "MixinSession"), these bare
+# fragments are safe to match — a class literally named "MixinSession"
+# or "MixinYggdrasil" is not ambiguous the way "session" as a substring
+# in arbitrary code is. This is separate from _ALL_SENSITIVE_TARGETS
+# (used for constant-pool type-descriptor matching) to avoid the broad
+# substring false positives that the previous version suffered from.
+_SENSITIVE_CONFIG_NAME_FRAGMENTS = (
+    "Session",
+    "YggdrasilAuthenticationService",
+    "YggdrasilUserApiService",
+    "PacketEncoder",
+    "PacketDecoder",
+)
+
+# Network-packet handling targets — a mixin here *can* intercept/modify
+# outbound packets (e.g. session tokens sent to servers), but many
+# legitimate networking optimization mods (malilib, noxesium, Fabric
+# API itself) mixin into PacketEncoder/PacketDecoder for non-malicious
+# reasons (packet compression, batching, custom payload registration).
+# These are rated MEDIUM (not HIGH) — suspicious enough to record, but
+# not enough to drive MALICIOUS on their own.
+_SENSITIVE_NETWORK_TARGETS = (
+    "PacketEncoder",
+    "PacketDecoder",
+    "class_2538",  # PacketEncoder (intermediary)
+    "class_2540",  # PacketDecoder (intermediary)
+)
+
+_ALL_SENSITIVE_TARGETS = _SENSITIVE_AUTH_TARGETS + _SENSITIVE_NETWORK_TARGETS
+
+# Intermediary class IDs that need word-boundary matching —
+# "class_45" must not match "class_4587", and "class_321" must not
+# match "class_3218". Built dynamically from _SENSITIVE_AUTH_TARGETS.
+_INTERMEDIARY_IDS = tuple(
+    frag for frag in _SENSITIVE_AUTH_TARGETS if frag.startswith("class_")
+)
+
+
+def _matches_sensitive_target(class_path: str) -> str | None:
+    """Check whether a class path references an auth- or network-
+    sensitive target. Returns the matched fragment, or None."""
+    matched = _matches_auth_target(class_path)
+    if matched:
+        return matched
+    for frag in _SENSITIVE_NETWORK_TARGETS:
+        if frag in class_path:
+            return frag
+    return None
+
+
+def _matches_auth_target(class_path: str) -> str | None:
+    """Check whether a class path references an auth-sensitive target
+    (Session, Yggdrasil). Uses word-boundary matching for intermediary
+    IDs to avoid class_321 matching class_3218."""
+    for frag in _SENSITIVE_AUTH_TARGETS:
+        if frag in _INTERMEDIARY_IDS:
+            idx = class_path.find(frag)
+            if idx < 0:
+                continue
+            after = idx + len(frag)
+            if after < len(class_path) and class_path[after].isdigit():
+                continue
+            return frag
+        else:
+            if frag in class_path:
+                return frag
+    return None
+
+
+def _matches_network_target(class_path: str) -> str | None:
+    """Check whether a class path references a network-packet target
+    (PacketEncoder/Decoder)."""
+    for frag in _SENSITIVE_NETWORK_TARGETS:
+        if frag in class_path:
+            return frag
+    return None
+
+# Mixin annotation type descriptors (as they appear in the constant
+# pool of a compiled mixin class).
+_MIXIN_ANNOTATION = "org/spongepowered/asm/mixin/Mixin;"
+_REDIRECT_ANNOTATION = "org/spongepowered/asm/mixin/injection/Redirect;"
+_OVERWRITE_ANNOTATION = "org/spongepowered/asm/mixin/Overwrite;"
+_HIGH_IMPACT_ANNOTATIONS = (_REDIRECT_ANNOTATION, _OVERWRITE_ANNOTATION)
+
+# Regex to extract a class reference from a JVM type descriptor like
+# "Lnet/minecraft/client/util/Session;" — captures the inner path.
+_TYPE_DESC_RE = re.compile(r"L([\w/$]+);")
 
 
 class D13MixinCoremod(Detector):
@@ -61,36 +154,119 @@ class D13MixinCoremod(Detector):
         return "d13"
 
     def analyze_class(self, class_file: ClassFile) -> list[Evidence]:
-        """Flag @Redirect/@Overwrite annotations referencing sensitive
-        targets found via the constant pool of a mixin class itself —
-        a coarse signal, since annotation *targets* (method
-        descriptors) are not fully resolved here, but the combination
-        of a high-impact Mixin annotation string and a sensitive class
-        name in the same constant pool is already informative.
+        """Analyze a mixin class for high-impact annotations on
+        auth-sensitive targets.
+
+        A @Mixin annotation's ``value`` element holds the target class
+        as a type descriptor (e.g. ``Lnet/minecraft/client/util/Session;``).
+        When @Redirect or @Overwrite is also present in the same class
+        and the target is auth-sensitive (Session, Yggdrasil, packet
+        encoder/decoder), this is CRITICAL — the mixin is replacing
+        the behavior of a method that holds or processes credentials,
+        without ever calling any API D01–D11 watch for.
+
+        Without @Redirect/@Overwrite, a type-descriptor match on its
+        own is ambiguous: the sensitive class might appear as a method
+        *parameter* (the mixin injects into a method that receives a
+        Session object) rather than as the @Mixin *target* (the class
+        being rewritten). In that case, require the mixin class name
+        itself to suggest the target (e.g. ``MixinSession``) to avoid
+        false positives from rendering mods whose methods happen to
+        receive auth objects as parameters.
         """
         evidence: list[Evidence] = []
         cp = class_file.constant_pool
         strings = cp.all_strings()
 
-        has_high_impact_annotation = any(
-            ann in s for s in strings for ann in _HIGH_IMPACT_MIXIN_ANNOTATIONS
-        )
-        if not has_high_impact_annotation:
+        has_mixin = any(_MIXIN_ANNOTATION in s for s in strings)
+        if not has_mixin:
             return evidence
 
-        matched_targets = {
-            frag for s in strings for frag in _SENSITIVE_TARGET_FRAGMENTS if frag in s
-        }
-        for target in matched_targets:
+        has_high_impact = any(
+            ann in s for s in strings for ann in _HIGH_IMPACT_ANNOTATIONS
+        )
+
+        # Extract auth-sensitive type-descriptor references from the
+        # constant pool. With @Redirect/@Overwrite, any such reference
+        # is a strong signal (the annotation means behavior replacement
+        # is happening on something). Without it, the reference might
+        # just be a method parameter type, so we also check the mixin
+        # class's own name.
+        auth_targets: list[str] = []
+        network_targets: list[str] = []
+        for s in strings:
+            for match in _TYPE_DESC_RE.finditer(s):
+                class_path = match.group(1)
+                if _matches_auth_target(class_path):
+                    auth_targets.append(class_path)
+                elif _matches_network_target(class_path):
+                    network_targets.append(class_path)
+
+        # For non-high-impact mixins, require the class name to also
+        # suggest the target (e.g. "MixinSession"). This filters out
+        # rendering mods whose @Inject methods receive Session as a
+        # parameter but don't target Session itself.
+        class_name_lower = class_file.this_class.lower()
+        if not has_high_impact:
+            auth_targets = [
+                t for t in auth_targets
+                if any(frag.lower() in class_name_lower
+                       for frag in _SENSITIVE_CONFIG_NAME_FRAGMENTS)
+            ]
+
+        if not auth_targets and not network_targets and not has_high_impact:
+            return evidence
+
+        # Deduplicate
+        unique_auth = sorted(set(auth_targets))
+        unique_network = sorted(set(network_targets))
+
+        for target in unique_auth:
+            if has_high_impact:
+                evidence.append(
+                    self._add_evidence(
+                        class_file, "", 0,
+                        (
+                            f"Mixin @Redirect/@Overwrite on auth-sensitive "
+                            f"target: {target} — this can replace the behavior "
+                            f"of a method that holds or processes credentials "
+                            f"without calling any API other detectors watch for"
+                        ),
+                        Severity.CRITICAL,
+                        matched_value=target,
+                        context={
+                            "mixin_target": target,
+                            "annotation": "redirect_or_overwrite",
+                        },
+                    )
+                )
+            else:
+                evidence.append(
+                    self._add_evidence(
+                        class_file, "", 0,
+                        (
+                            f"Mixin targets auth-sensitive class: {target} — "
+                            f"a mixin into session/auth code can intercept "
+                            f"credentials even without @Redirect/@Overwrite"
+                        ),
+                        Severity.HIGH,
+                        matched_value=target,
+                        context={"mixin_target": target},
+                    )
+                )
+
+        for target in unique_network:
             evidence.append(
                 self._add_evidence(
-                    class_file,
-                    "",
-                    0,
-                    f"Mixin class references high-impact annotation "
-                    f"(@Redirect/@Overwrite) alongside sensitive target: {target}",
-                    Severity.HIGH,
+                    class_file, "", 0,
+                    (
+                        f"Mixin targets network-packet class: {target} — "
+                        f"can intercept/modify outbound packets, but many "
+                        f"legitimate networking mods also target these"
+                    ),
+                    Severity.MEDIUM,
                     matched_value=target,
+                    context={"mixin_target": target},
                 )
             )
 
@@ -126,12 +302,12 @@ class D13MixinCoremod(Detector):
 
         evidence: list[Evidence] = []
         for class_name in mixin_class_names:
-            # The Mixin's own class name conventionally hints at its
-            # target (e.g. "MixinMinecraftClient" targeting
-            # MinecraftClient) — this is a naming convention, not a
-            # guarantee, but it is what a human reviewer would also
-            # use as a first signal without decompiling the mixin.
-            for fragment in _SENSITIVE_TARGET_FRAGMENTS:
+            # The mixin's own class name conventionally hints at its
+            # target (e.g. "MixinSession" targeting Session) — but only
+            # match against the narrowed auth-sensitive list, not the
+            # broad "MinecraftClient"/"Session" fragments that matched
+            # every rendering/input mod.
+            for fragment in _SENSITIVE_CONFIG_NAME_FRAGMENTS:
                 if fragment in class_name:
                     evidence.append(
                         Evidence(
