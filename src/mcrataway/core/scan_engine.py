@@ -436,6 +436,7 @@ class ScanEngine:
         manifest_entries: dict[str, bytes] = {}
         manifest_names = {
             "fabric.mod.json", "mcmod.info", "META-INF/MANIFEST.MF",
+            "META-INF/jarjar/metadata.json",
         }
 
         # Collected for D14 (signature/manifest tamper detection),
@@ -444,6 +445,16 @@ class ScanEngine:
         # rather than by iterating entries a second time.
         class_entry_names: set[str] = set()
         sf_contents: dict[str, str] = {}
+
+        # Nested archive entry names found during this pass, checked
+        # against the modloader manifest's declared-jar list after the
+        # stream completes (the manifest may appear after a nested jar
+        # in zip-entry order, so the check must be deferred). An
+        # undeclared nested archive is a strong evasion signal: legit
+        # modloader packaging (Fabric `jars/`, Forge JarJar) always
+        # declares nested jars in their manifests, so a payload staged
+        # as an unlisted inner JAR has no benign explanation.
+        nested_archive_names: list[str] = []
 
         match_states = [(rule_pack, rule_pack.new_match_state()) for rule_pack in self.rules]
 
@@ -469,6 +480,7 @@ class ScanEngine:
             nested_path = f"{display_path}!/{entry.name}"
 
             if is_nested_archive(entry.data) and depth < self.max_nesting_depth:
+                nested_archive_names.append(entry.name)
                 try:
                     nested_reader = ArchiveReader(entry.data, size_budget=size_budget)
                     self._analyze_archive_entries(
@@ -524,6 +536,38 @@ class ScanEngine:
             metadata["loader"] = manifest.loader
             metadata["name"] = manifest.name
             metadata["version"] = manifest.version
+
+            # Check for undeclared nested archives: a nested JAR that
+            # does not appear in the modloader manifest's declared-jar
+            # list has no benign explanation. Legitimate nested-jar
+            # packaging (Fabric `jars/`, Forge JarJar) always declares
+            # its inner jars; an attacker staging a payload as an
+            # unlisted inner JAR is the exact evasion technique
+            # fractureiser Stage-0 used.
+            declared = {p.lstrip("/") for p in manifest.declared_nested_jars}
+            for nested_name in nested_archive_names:
+                if nested_name not in declared:
+                    index.add(
+                        Evidence(
+                            detector_id="archive",
+                            severity=Severity.MEDIUM,
+                            class_name="",
+                            method_name="",
+                            offset=0,
+                            description=(
+                                f"Undeclared nested archive: {nested_name} — "
+                                f"not listed in the modloader manifest's "
+                                f"declared-jar list (Fabric 'jars' or Forge "
+                                f"JarJar 'metadata.json'). Legitimate nested "
+                                f"packaging always declares inner jars."
+                            ),
+                            matched_value=nested_name,
+                            context={
+                                "archive_path": f"{display_path}!/{nested_name}",
+                                "undeclared_nested": "1",
+                            },
+                        )
+                    )
 
         # Signature/manifest tamper checks only apply to the top-level
         # archive: a signature block found inside a nested archive

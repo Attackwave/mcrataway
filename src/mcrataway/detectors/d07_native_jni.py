@@ -47,13 +47,20 @@ class D07NativeJni(Detector):
             invokes = resolve_invokes(method.bytecode, cp, class_file.bootstrap_methods)
             for inv in invokes:
                 if inv.owner == "java/lang/System" and inv.name in ("load", "loadLibrary"):
+                    # System.loadLibrary() is completely normal — every
+                    # LWJGL/rendering mod uses it to load bundled natives.
+                    # Rate it MEDIUM (not HIGH) so it doesn't single-
+                    # handedly trip MALICIOUS. System.load() takes an
+                    # absolute path and is the actual payload-staging
+                    # vector, so it stays HIGH.
+                    sev = Severity.HIGH if inv.name == "load" else Severity.MEDIUM
                     evidence.append(
                         self._add_evidence(
                             class_file,
                             method.name,
                             inv.offset,
                             f"Native library loading: System.{inv.name}()",
-                            Severity.HIGH,
+                            sev,
                             matched_value=f"{inv.owner}.{inv.name}{inv.descriptor}",
                             context={"invoke_owner": inv.owner, "invoke_name": inv.name},
                         )

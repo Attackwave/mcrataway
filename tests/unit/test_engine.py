@@ -135,10 +135,15 @@ def test_verdict_aggregator_native_override():
 
 
 def test_verdict_aggregator_suspicious_from_medium():
+    # 4 MEDIUM findings from 4 *distinct* detectors — the distinct-
+    # detector dedup means 3 MEDIUMs from the same detector (e.g. D10
+    # firing across 3 classes) counts as 1 capability, not 3. This
+    # test uses 4 different detectors to cross the SUSPICIOUS
+    # threshold of medium_count=4.
     idx = EvidenceIndex()
-    for i in range(3):
+    for i, det_id in enumerate(("d01", "d02", "d03", "d04")):
         idx.add(Evidence(
-            detector_id="d01",
+            detector_id=det_id,
             severity=Severity.MEDIUM,
             class_name=f"com/test/C{i}",
             method_name="m",
