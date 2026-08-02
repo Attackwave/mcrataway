@@ -41,11 +41,16 @@ def _run_scan(
         do_quarantine_suspicious=config.quarantine_suspicious,
     )
 
+    from mcrataway.reputation import load_known_good_store
+
+    reputation_store = load_known_good_store()
+    all_whitelisted = set(config.whitelisted_hashes) | reputation_store.hashes
+
     engine = ScanEngine(
         rules=rule_loader.all_rules(),
         quarantine=quarantine_mgr,
         max_workers=config.max_workers,
-        whitelisted_hashes=config.whitelisted_hashes,
+        whitelisted_hashes=all_whitelisted,
         excluded_paths=config.excluded_paths,
         max_nesting_depth=config.max_recursion_depth,
     )

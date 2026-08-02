@@ -121,11 +121,23 @@ def scan(
         do_quarantine_suspicious=config.quarantine_suspicious,
     )
 
+    # Merge user-configured whitelisted hashes with the known-good
+    # reputation store (if present). The reputation store is an
+    # Ed25519-signed, offline set of SHA-256 hashes of verified-clean
+    # mods from Modrinth/CurseForge — a hash match means the file is
+    # byte-identical to the author-published version, so the scanner
+    # can safely skip it. See reputation/__init__.py for the format
+    # and signing model.
+    from mcrataway.reputation import load_known_good_store
+
+    reputation_store = load_known_good_store()
+    all_whitelisted = set(config.whitelisted_hashes) | reputation_store.hashes
+
     engine = ScanEngine(
         rules=rule_loader.all_rules(),
         quarantine=quarantine_mgr,
         max_workers=config.max_workers,
-        whitelisted_hashes=config.whitelisted_hashes,
+        whitelisted_hashes=all_whitelisted,
         excluded_paths=config.excluded_paths,
     )
 
