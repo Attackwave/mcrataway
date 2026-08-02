@@ -81,7 +81,7 @@ jobs:
           # Generate a Software Bill of Materials for the installed
           # package — this is what users and security teams use to
           # track what's in the scanner they're running.
-          cyclonedx-py environment -o sbom.json --schema-version 1.5
+          cyclonedx-py environment -o sbom.json --sv 1.5
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v7
