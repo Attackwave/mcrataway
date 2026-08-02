@@ -664,10 +664,19 @@ class ScanEngine:
         for rs in reconstructed:
             if rs.technique == "ldc_string":
                 continue
+            # AES-embedded-key reconstruction is a strong signal on its
+            # own — a benign mod has no reason to AES-encrypt a string
+            # with a hardcoded key in its own bytecode. Rate it HIGH so
+            # it contributes to the verdict even without corroboration
+            # from other detectors.
+            recon_severity = (
+                Severity.HIGH if rs.technique == "aes_embedded_key"
+                else Severity.INFO
+            )
             evidence.append(
                 Evidence(
                     detector_id="string_reconstruction",
-                    severity=Severity.INFO,
+                    severity=recon_severity,
                     class_name=rs.class_name,
                     method_name=rs.method_name,
                     offset=rs.offset,

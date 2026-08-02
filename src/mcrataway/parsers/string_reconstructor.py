@@ -7,6 +7,10 @@ Handles:
 - split int[]/String[] interleaving with S-box + XOR cipher (weedhack family)
 - StringBuilder.append() chains
 - Base64.getDecoder().decode(...) on a constant-pool string literal
+- AES/DES decryption with an embedded key literal (byte array) in the
+  same method — the defining characteristic of this malware class is
+  that the key is right there in the bytecode, because the mod needs
+  to decrypt the string at runtime without any external dependency.
 """
 
 import base64
@@ -45,6 +49,7 @@ def reconstruct_strings(class_file: ClassFile) -> list[ReconstructedString]:
         results.extend(_extract_weedhack_cipher_strings(method, class_file))
         results.extend(_extract_base64_strings(method, class_file))
         results.extend(_extract_generic_xor_strings(method, class_file))
+        results.extend(_extract_aes_strings(method, class_file))
 
         # Extract plain LDC strings
         ldc_strings = extract_ldc_strings(method.bytecode, class_file.constant_pool)
@@ -211,6 +216,110 @@ def _extract_weedhack_cipher_strings(
             )
 
     return results
+
+
+# AES key lengths in bytes — only 16, 24, 32 are valid AES key sizes.
+_AES_KEY_LENGTHS = (16, 24, 32)
+
+
+def _extract_aes_strings(
+    method: MethodInfo,
+    class_file: ClassFile,
+) -> list[ReconstructedString]:
+    """Detect AES-encrypted strings decrypted at runtime with a key
+    embedded as a byte-array literal in the same method.
+
+    This is the defining characteristic of a class of malware that
+    hides C2 URLs, webhook URLs, and other strings in encrypted byte
+    arrays: the mod needs to decrypt them at runtime, so the key must
+    be present in the same bytecode. A benign mod has no reason to
+    embed an AES key alongside encrypted data — legitimate crypto uses
+    keys derived from passwords or external sources, not hardcoded
+    byte arrays.
+
+    Recognizes: a method that calls ``javax/crypto/Cipher.doFinal`` and
+    ``javax/crypto/spec/SecretKeySpec.<init>``, with two or more
+    ``byte[]`` array literals — one of which is a valid AES key length
+    (16/24/32 bytes) and another whose length is a multiple of the AES
+    block size (16). Tries AES-ECB-NoPadding decryption (the simplest
+    and most common mode in malware) and reports the result if it
+    decodes as plausible text.
+    """
+    results: list[ReconstructedString] = []
+    bytecode = method.bytecode
+    cp = class_file.constant_pool
+
+    invokes = resolve_invokes(bytecode, cp, class_file.bootstrap_methods)
+    uses_cipher = any(
+        inv.owner == "javax/crypto/Cipher" and inv.name == "doFinal" for inv in invokes
+    )
+    uses_secret_key = any(
+        inv.owner == "javax/crypto/spec/SecretKeySpec" for inv in invokes
+    )
+    if not uses_cipher or not uses_secret_key:
+        return results
+
+    byte_arrays = extract_newarray_bytes(bytecode, cp)
+    if len(byte_arrays) < 2:
+        return results
+
+    # Classify arrays: key candidates (16/24/32 bytes) and ciphertext
+    # candidates (length is a multiple of 16, not the same array as the
+    # key). A method may have more than two arrays (e.g. the key, the
+    # ciphertext, and an IV for CBC mode) — we try each key-length
+    # array against each block-aligned array that isn't the same one.
+    key_candidates = [
+        (off, bytes(v & 0xFF for v in vals))
+        for off, vals in byte_arrays
+        if len(vals) in _AES_KEY_LENGTHS
+    ]
+    ct_candidates = [
+        (off, bytes(v & 0xFF for v in vals))
+        for off, vals in byte_arrays
+        if len(vals) % 16 == 0 and len(vals) > 0
+    ]
+
+    if not key_candidates or not ct_candidates:
+        return results
+
+    for key_off, key_bytes in key_candidates:
+        for ct_off, ct_bytes in ct_candidates:
+            if key_off == ct_off:
+                continue
+            if len(key_bytes) == len(ct_bytes) and key_bytes == ct_bytes:
+                continue
+            decoded = _try_aes_decrypt(key_bytes, ct_bytes)
+            if decoded and _is_plausible_text(decoded):
+                results.append(
+                    ReconstructedString(
+                        method_name=method.name,
+                        class_name=class_file.this_class,
+                        offset=ct_off,
+                        value=decoded,
+                        technique="aes_embedded_key",
+                    )
+                )
+    return results
+
+
+def _try_aes_decrypt(key: bytes, ciphertext: bytes) -> str | None:
+    """Try AES-ECB-NoPadding decryption and return the result as a
+    string if it decodes as valid UTF-8, or None on any failure."""
+    try:
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+        cipher = Cipher(algorithms.AES(key), modes.ECB())
+        decryptor = cipher.decryptor()
+        plaintext = decryptor.update(ciphertext) + decryptor.finalize()
+        # Strip PKCS5/PKCS7 padding if present (last byte = pad length,
+        # all padding bytes equal to that length).
+        if plaintext:
+            pad_byte = plaintext[-1]
+            if 0 < pad_byte <= 16 and plaintext[-pad_byte:] == bytes([pad_byte] * pad_byte):
+                plaintext = plaintext[:-pad_byte]
+        return plaintext.decode("utf-8")
+    except Exception:
+        return None
 
 
 def _extract_base64_strings(
