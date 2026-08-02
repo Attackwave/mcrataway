@@ -6,12 +6,12 @@ import zipfile
 from pathlib import Path
 
 from mcrataway.core.scan_engine import ScanEngine
-from mcrataway.rules.loader import RulePackLoader
 from mcrataway.rulegen.correlate import generalize
 from mcrataway.rulegen.engine import RuleGenEngine
 from mcrataway.rulegen.features import CandidateFeature, extract_candidates
 from mcrataway.rulegen.propose import propose_rule
 from mcrataway.rulegen.sample import analyze_sample, analyze_samples
+from mcrataway.rules.loader import RulePackLoader
 
 
 def _build_class_raw(cp_strings: list[str]) -> bytes:
@@ -133,15 +133,30 @@ def test_generalize_single_sample_keeps_everything():
 def test_generalize_keeps_common_drops_unique():
     shared = "shared_c2_string"
     sample_a = [
-        CandidateFeature(kind="literal", value=shared, source="constant_pool", sample_hashes={"hash_a"}),
-        CandidateFeature(kind="literal", value="only_in_a", source="constant_pool", sample_hashes={"hash_a"}),
+        CandidateFeature(
+            kind="literal", value=shared,
+            source="constant_pool", sample_hashes={"hash_a"},
+        ),
+        CandidateFeature(
+            kind="literal", value="only_in_a",
+            source="constant_pool", sample_hashes={"hash_a"},
+        ),
     ]
     sample_b = [
-        CandidateFeature(kind="literal", value=shared, source="constant_pool", sample_hashes={"hash_b"}),
-        CandidateFeature(kind="literal", value="only_in_b", source="constant_pool", sample_hashes={"hash_b"}),
+        CandidateFeature(
+            kind="literal", value=shared,
+            source="constant_pool", sample_hashes={"hash_b"},
+        ),
+        CandidateFeature(
+            kind="literal", value="only_in_b",
+            source="constant_pool", sample_hashes={"hash_b"},
+        ),
     ]
     sample_c = [
-        CandidateFeature(kind="literal", value=shared, source="constant_pool", sample_hashes={"hash_c"}),
+        CandidateFeature(
+            kind="literal", value=shared,
+            source="constant_pool", sample_hashes={"hash_c"},
+        ),
     ]
 
     result = generalize([sample_a, sample_b, sample_c], min_sample_fraction=0.6)
@@ -167,10 +182,16 @@ def test_generalize_does_not_collapse_different_kinds_of_same_value():
     cannot match the samples that only exhibited the other kind."""
     shared_value = "deadbeef"
     sample_a = [
-        CandidateFeature(kind="literal", value=shared_value, source="constant_pool", sample_hashes={"hash_a"}),
+        CandidateFeature(
+            kind="literal", value=shared_value,
+            source="constant_pool", sample_hashes={"hash_a"},
+        ),
     ]
     sample_b = [
-        CandidateFeature(kind="hex", value=shared_value, source="reconstructed_string", sample_hashes={"hash_b"}),
+        CandidateFeature(
+            kind="hex", value=shared_value,
+            source="reconstructed_string", sample_hashes={"hash_b"},
+        ),
     ]
 
     result = generalize([sample_a, sample_b], min_sample_fraction=0.5)
@@ -183,7 +204,10 @@ def test_generalize_does_not_collapse_different_kinds_of_same_value():
 
 def test_propose_rule_builds_definition():
     candidates = [
-        CandidateFeature(kind="literal", value="evil_marker", source="constant_pool", sample_hashes={"h1"}),
+        CandidateFeature(
+            kind="literal", value="evil_marker",
+            source="constant_pool", sample_hashes={"h1"},
+        ),
     ]
     proposal = propose_rule(candidates, family="my_family")
     assert proposal.status == "proposed"
@@ -223,10 +247,10 @@ def test_generate_from_analyses_matches_generate_from_directory(tmp_path: Path):
 
 
 def test_proposed_subdir_not_loaded_by_load_defaults(tmp_path: Path, monkeypatch):
-    from mcrataway.rules.yaml_writer import write_proposal
+    from mcrataway.constants import Severity
     from mcrataway.rulegen.propose import RuleProposal
     from mcrataway.rules.loader import RuleDefinition
-    from mcrataway.constants import Severity
+    from mcrataway.rules.yaml_writer import write_proposal
 
     user_rules_dir = tmp_path / "rules"
     proposed_dir = user_rules_dir / "proposed"
@@ -323,6 +347,7 @@ def test_generated_proposal_matches_its_own_source_sample():
     loader = RulePackLoader()
     pack = None
     import tempfile
+
     from mcrataway.rules.yaml_writer import write_proposal
     with tempfile.TemporaryDirectory() as td:
         out = Path(td) / "proposed.yaml"
@@ -364,6 +389,7 @@ def test_generated_proposal_does_not_match_unrelated_benign_sample():
 
     loader = RulePackLoader()
     import tempfile
+
     from mcrataway.rules.yaml_writer import write_proposal
     with tempfile.TemporaryDirectory() as td:
         out = Path(td) / "proposed.yaml"

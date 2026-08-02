@@ -14,8 +14,7 @@ the persistence command it references, not just mention it.
 """
 
 from mcrataway.constants import Severity
-from mcrataway.core.evidence import Evidence
-from mcrataway.core.evidence import EvidenceIndex
+from mcrataway.core.evidence import Evidence, EvidenceIndex
 from mcrataway.detectors.base import Detector
 from mcrataway.parsers.classfile import ClassFile
 
@@ -90,7 +89,10 @@ class D05Persistence(Detector):
                 )
             )
 
-        weak_prefix = "Obfuscated persistence-related identifier" if obfuscated else "Persistence-related identifier"
+        weak_prefix = (
+            "Obfuscated persistence-related identifier"
+            if obfuscated else "Persistence-related identifier"
+        )
         weak_severity = Severity.MEDIUM if obfuscated else Severity.LOW
         for ind, matched in weak_hits.items():
             evidence.append(

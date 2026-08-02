@@ -74,7 +74,8 @@ _DETECTOR_CONTEXT: dict[str, DetectorContext] = {
         "T1129", "Shared Modules",
         "This mod loads a native (non-Java) library, which runs with "
         "fewer safety guarantees than Java code.",
-        "Native libraries are rare in ordinary mods outside of rendering/audio (LWJGL) — verify the source.",
+        "Native libraries are rare in ordinary mods outside of "
+        "rendering/audio (LWJGL) — verify the source.",
     ),
     "d08": DetectorContext(
         "T1528", "Steal Application Access Token",
@@ -109,13 +110,15 @@ _DETECTOR_CONTEXT: dict[str, DetectorContext] = {
         "T1055", "Process Injection",
         "This mod rewrites part of Minecraft's own code (or another "
         "mod's code) at load time, targeting session or network handling.",
-        "Mixins/coremods targeting auth-related classes have no ordinary gameplay purpose — verify carefully.",
+        "Mixins/coremods targeting auth-related classes have no "
+        "ordinary gameplay purpose — verify carefully.",
     ),
     "d14": DetectorContext(
         None, None,
         "This mod's file was digitally signed, but contains content "
         "added after signing, or loads additional external code.",
-        "Treat as a tampered/trojanized copy of a legitimate mod — obtain the mod from its original source instead.",
+        "Treat as a tampered/trojanized copy of a legitimate mod — "
+        "obtain the mod from its original source instead.",
     ),
     "behavior_chain": DetectorContext(
         None, None,
@@ -147,7 +150,10 @@ def context_for(detector_id: str) -> DetectorContext:
         return _RULE_CONTEXT
     return _DETECTOR_CONTEXT.get(
         detector_id,
-        DetectorContext(None, None, "This mod exhibits a flagged capability.", "Review this finding manually."),
+        DetectorContext(
+            None, None, "This mod exhibits a flagged capability.",
+            "Review this finding manually.",
+        ),
     )
 
 

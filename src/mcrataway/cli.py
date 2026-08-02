@@ -1,6 +1,5 @@
 """CLI entry point commands."""
 
-import json
 import threading
 import webbrowser
 from pathlib import Path
@@ -60,7 +59,9 @@ main.add_command(rulegen)
     "report_path",
     type=click.Path(),
     default=None,
-    help="Write full JSON report to this path.",
+    help="Write report to this path. Format auto-detected from extension: "
+         ".json = JSON, .sarif = SARIF (GitHub Code Scanning), .html = HTML. "
+         "Default is JSON for unknown extensions.",
 )
 @click.option(
     "--quarantine/--no-quarantine",
@@ -75,12 +76,21 @@ main.add_command(rulegen)
     help="Additional YAML rule pack to load.",
 )
 @click.option("--auto", "auto_discover", is_flag=True, help="Auto-discover Minecraft roots.")
+@click.option(
+    "--fail-on",
+    type=click.Choice(["malicious", "suspicious", "none"], case_sensitive=False),
+    default="malicious",
+    help="Exit non-zero when a verdict at/above this level is found "
+         "(default: malicious). 'suspicious' also flags SUSPICIOUS; "
+         "'none' always exits 0. Exit code 2 = threshold met, 1 = error.",
+)
 def scan(
     paths: tuple[str, ...],
     report_path: str | None,
     quarantine: bool | None,
     rule_pack: str | None,
     auto_discover: bool,
+    fail_on: str,
 ) -> None:
     """Scan specified paths or auto-discovered Minecraft roots."""
     config = UserConfig.load()
@@ -135,7 +145,14 @@ def scan(
 
     rich.print(f"[bold]Scanning {len(roots)} root(s)...[/bold]")
 
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+    from rich.progress import (
+        BarColumn,
+        Progress,
+        SpinnerColumn,
+        TaskID,
+        TextColumn,
+        TimeElapsedColumn,
+    )
 
     results = []
     # rich.progress.Progress is not safe to update concurrently from
@@ -162,9 +179,12 @@ def scan(
 
             progress.update(task, description=f"[green]Scanning {root.name}...", total=len(files))
 
-            def update_progress(f: Path) -> None:
+            def update_progress(f: Path, _task: TaskID = task) -> None:
                 with progress_lock:
-                    progress.update(task, advance=1, description=f"[green]Scanning: [dim]{f.name}[/dim]")
+                    progress.update(
+                        _task, advance=1,
+                        description=f"[green]Scanning: [dim]{f.name}[/dim]",
+                    )
 
             results.extend(engine.scan_files(files, on_progress=update_progress))
             progress.update(task, description=f"[green]Finished {root.name}")
@@ -175,14 +195,30 @@ def scan(
     console.print_report(report)
 
     if report_path:
-        with open(report_path, "w") as f:
-            json.dump(report.to_dict(), f, indent=2, default=str)
+        from mcrataway.reporting.html_writer import HtmlWriter
+        from mcrataway.reporting.json_writer import JsonWriter
+        from mcrataway.reporting.sarif_writer import SarifWriter
+
+        report_p = Path(report_path)
+        suffix = report_p.suffix.lower()
+        if suffix == ".sarif":
+            SarifWriter.write(report, report_p)
+        elif suffix == ".html":
+            HtmlWriter.write(report, report_p)
+        else:
+            JsonWriter.write(report, report_p)
         rich.print(f"\n[dim]Report written to {report_path}[/dim]")
 
     malicious = sum(1 for r in results if r.verdict.value == "MALICIOUS")
     suspicious = sum(1 for r in results if r.verdict.value == "SUSPICIOUS")
     rich.print(f"\n[bold]Results:[/bold] {malicious} malicious, "
                f"{suspicious} suspicious, {len(results)} total")
+
+    fail_on_normalized = fail_on.lower()
+    if fail_on_normalized == "malicious" and malicious > 0:
+        raise SystemExit(2)
+    if fail_on_normalized == "suspicious" and (malicious > 0 or suspicious > 0):
+        raise SystemExit(2)
 
 
 @main.command()

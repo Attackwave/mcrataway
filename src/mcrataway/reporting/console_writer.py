@@ -20,6 +20,7 @@ class ConsoleWriter:
         time_str = report.timestamp
         try:
             from datetime import datetime
+
             from mcrataway.config import UserConfig
             config = UserConfig.load()
             dt = datetime.fromisoformat(report.timestamp.replace("Z", "+00:00"))

@@ -45,6 +45,7 @@ QUARANTINE_DIR = CONFIG_DIR / "quarantine"
 TOKEN_FILE = CONFIG_DIR / "token"
 CONFIG_FILE = CONFIG_DIR / "config.yaml"
 HISTORY_DIR = CONFIG_DIR / "history"
+AUDIT_LOG_FILE = CONFIG_DIR / "audit.log"
 
 # Java bytecode magic
 JAVA_CLASS_MAGIC = b"\xCA\xFE\xBA\xBE"

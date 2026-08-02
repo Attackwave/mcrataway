@@ -64,7 +64,10 @@ def test_lone_high_finding_is_not_downgraded() -> None:
     weak/ambiguous single capabilities, not detectors that already
     concluded high confidence."""
     idx = EvidenceIndex()
-    idx.add(Evidence("d02", Severity.HIGH, "com/example/Exfil", "", 0, "Discord webhook URL detected"))
+    idx.add(Evidence(
+        "d02", Severity.HIGH, "com/example/Exfil", "", 0,
+        "Discord webhook URL detected",
+    ))
     evaluate_chains(idx)
 
     assert len(idx.evidence) == 1

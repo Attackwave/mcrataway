@@ -45,6 +45,7 @@ class HtmlWriter:
         formatted_ts = report.timestamp
         try:
             from datetime import datetime
+
             from mcrataway.config import UserConfig
             config = UserConfig.load()
             dt = datetime.fromisoformat(report.timestamp.replace("Z", "+00:00"))
@@ -100,7 +101,8 @@ class HtmlWriter:
 <h2>Findings</h2>
 <table>
   <thead>
-    <tr><th>File</th><th>Verdict</th><th>Severity</th><th>Detector</th><th>What this means</th><th>Recommended action</th><th>Technical detail</th></tr>
+    <tr><th>File</th><th>Verdict</th><th>Severity</th><th>Detector</th>
+        <th>What this means</th><th>Recommended action</th><th>Technical detail</th></tr>
   </thead>
   <tbody>
 """)

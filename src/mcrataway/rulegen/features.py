@@ -53,7 +53,12 @@ def extract_candidates(analysis: SampleAnalysis) -> list[CandidateFeature]:
     reconstructed strings."""
     candidates: dict[str, CandidateFeature] = {}
 
-    def _add(value: str, source: Literal["constant_pool", "reconstructed_string"], technique: str, detector_id: str) -> None:
+    def _add(
+        value: str,
+        source: Literal["constant_pool", "reconstructed_string"],
+        technique: str,
+        detector_id: str,
+    ) -> None:
         value = value.strip()
         if len(value) < _MIN_VALUE_LENGTH:
             return
@@ -66,7 +71,10 @@ def extract_candidates(analysis: SampleAnalysis) -> list[CandidateFeature]:
             return
         existing = candidates.get(value)
         if existing is None:
-            existing = CandidateFeature(kind="literal", value=value, source=source, technique=technique)
+            existing = CandidateFeature(
+                kind="literal", value=value,
+                source=source, technique=technique,
+            )
             candidates[value] = existing
         existing.sample_hashes.add(analysis.file_hash)
         existing.detector_ids.add(detector_id)

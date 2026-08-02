@@ -1,4 +1,5 @@
 pack_id: "minecraft_families"
+pack_version: "2026-08-02"
 description: "Known Minecraft mod malware family IOCs"
 rules:
   - id: "weedhack_loaderclient"

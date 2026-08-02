@@ -47,7 +47,7 @@ def pack_to_yaml(pack_id: str, rules: list[RuleDefinition], description: str = "
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
 
 
-def write_proposal(proposal: "RuleProposal", path: Path) -> None:
+def write_proposal(proposal: RuleProposal, path: Path) -> None:
     """Write one RuleProposal to *path* as YAML.
 
     Provenance (source_samples, generated_at, generator_version, notes)
@@ -59,7 +59,10 @@ def write_proposal(proposal: "RuleProposal", path: Path) -> None:
     """
     data: dict[str, Any] = {
         "pack_id": f"{proposal.definition.family}_proposed",
-        "description": f"Auto-generated proposal for family '{proposal.definition.family}' — requires human review before use.",
+        "description": (
+            f"Auto-generated proposal for family "
+            f"'{proposal.definition.family}' — requires human review before use."
+        ),
         "rules": [rule_to_dict(proposal.definition)],
         "proposal_metadata": {
             "status": proposal.status,

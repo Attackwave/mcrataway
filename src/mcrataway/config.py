@@ -1,5 +1,6 @@
 """User configuration management."""
 
+import contextlib
 from pathlib import Path
 
 import yaml
@@ -49,10 +50,8 @@ class UserConfig:
         path = path or CONFIG_FILE
         if not path.exists():
             default_cfg = cls()
-            try:
+            with contextlib.suppress(Exception):
                 default_cfg.save(path)
-            except Exception:
-                pass
             return default_cfg
         try:
             with open(path) as f:
@@ -91,10 +90,8 @@ class UserConfig:
         # config can contain scanned paths and quarantine locations,
         # which on a multi-user system reveal information about what
         # the user has been scanning/finding to other local accounts.
-        try:
+        with contextlib.suppress(OSError):
             path.chmod(0o600)
-        except OSError:
-            pass
 
 
 def ensure_config_dir() -> None:
