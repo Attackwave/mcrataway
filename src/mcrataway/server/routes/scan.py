@@ -146,6 +146,69 @@ async def start_scan(
     return {"job_id": job_id, "status": "PENDING", "roots": actual_roots}
 
 
+# --- WebSocket ticket auth -------------------------------------------------
+# Browsers cannot set custom headers on WebSocket handshakes, so the
+# long-lived auth token would have to be passed as ``?token=`` in the
+# WS URL — which leaks into access logs and Referer headers. Instead,
+# the frontend fetches a short-lived, single-use ticket from this
+# endpoint (a normal HTTP GET, which CAN carry the X-Mcrataway-Token
+# header), then opens the WS with ``?ticket=``. The ticket is valid
+# for 60 seconds and can only be used once, so a leaked ticket (from a
+# log or Referer) is useless after one use or after expiry.
+#
+# Route order matters: /ws-ticket must be registered BEFORE /{job_id}
+# or FastAPI matches "ws-ticket" as a job_id path parameter.
+
+_TICKET_TTL_SECONDS = 60
+_tickets: dict[str, float] = {}
+_ticket_lock: asyncio.Lock | None = None
+
+
+def _get_ticket_lock() -> asyncio.Lock:
+    global _ticket_lock
+    if _ticket_lock is None:
+        _ticket_lock = asyncio.Lock()
+    return _ticket_lock
+
+
+def _purge_expired_tickets(now: float) -> None:
+    """Remove expired tickets (called under _ticket_lock)."""
+    expired = [t for t, exp in _tickets.items() if exp < now]
+    for t in expired:
+        del _tickets[t]
+
+
+async def _validate_ws_ticket(ticket: str) -> bool:
+    """Validate and consume a WebSocket ticket. Returns True if the
+    ticket was valid (and is now consumed), False otherwise."""
+    import time
+
+    async with _get_ticket_lock():
+        now = time.time()
+        _purge_expired_tickets(now)
+        exp = _tickets.pop(ticket, None)
+        return exp is not None and exp >= now
+
+
+@router.get("/ws-ticket")
+async def issue_ws_ticket(request: Request) -> dict[str, Any]:
+    """Issue a short-lived, single-use WebSocket ticket.
+
+    Requires the same X-Mcrataway-Token header as other API routes
+    (enforced by the ``token_guard`` middleware). The returned ticket
+    can be used as ``?ticket=`` on the WebSocket handshake URL within
+    60 seconds.
+    """
+    import secrets
+    import time
+
+    ticket = secrets.token_urlsafe(32)
+    async with _get_ticket_lock():
+        _purge_expired_tickets(time.time())
+        _tickets[ticket] = time.time() + _TICKET_TTL_SECONDS
+    return {"ticket": ticket, "expires_in": _TICKET_TTL_SECONDS}
+
+
 @router.get("/{job_id}")
 async def get_job(job_id: str, request: Request) -> dict[str, Any]:
     """Get job status and partial results."""
@@ -186,7 +249,6 @@ async def stream_job(websocket: WebSocket) -> None:
         return
 
     if TOKEN_FILE.exists():
-        token = websocket.query_params.get("token", "")
         try:
             expected = TOKEN_FILE.read_text().strip()
         except Exception:
@@ -197,8 +259,25 @@ async def stream_job(websocket: WebSocket) -> None:
         if not expected:
             await websocket.close(code=4401)
             return
+
+        # Prefer the short-lived ticket (issued by GET /scan/ws-ticket)
+        # over the long-lived token — the ticket is single-use and
+        # expires in 60 seconds, so a leaked ticket (from access logs
+        # or Referer) is useless. The long-lived token is accepted as
+        # a fallback for non-browser clients that can't easily fetch a
+        # ticket first.
+        ticket = websocket.query_params.get("ticket", "")
+        token = websocket.query_params.get("token", "")
         import hmac
-        if not hmac.compare_digest(token, expected):
+
+        if ticket:
+            authenticated = await _validate_ws_ticket(ticket)
+        elif token:
+            authenticated = hmac.compare_digest(token, expected)
+        else:
+            authenticated = False
+
+        if not authenticated:
             await websocket.close(code=4401)
             return
 
