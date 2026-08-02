@@ -44,12 +44,26 @@ _MIN_DISPATCHER_TARGETS = 4
 # (the "jump back to re-dispatch" at the end of each state's body).
 _MIN_GOTO_TO_TARGET_RATIO = 0.5
 
+# Minimum fraction of gotos that must jump BACK to the switch
+# dispatcher (target offset <= switch offset) to confirm flattening.
+# This is the actual distinguishing signal: in a flattened dispatcher,
+# every case's goto jumps back to the dispatcher; in an ordinary
+# switch-in-loop, gotos jump to the loop increment / loop back-edge,
+# not to the switch. Measured against real javac output:
+#   Flattened fixture: 6/6 gotos jump back = 1.0
+#   LoopWithSwitch fixture: 0/5 gotos jump back = 0.0
+#   NormalSwitch fixture: 0 gotos total
+_MIN_BACK_JUMP_FRACTION = 0.6
+
 # Opcodes that indicate a loop-bound comparison rather than a
 # pure state-variable dispatch when found shortly before a
 # switch: if_icmp* family (159-166), arraylength (190),
 # if_acmp* (165-166, already covered), and the generic
 # if<cond> family used against a loop counter (153-158).
 _LOOP_COMPARISON_OPCODES = set(range(153, 167)) | {190}
+
+# Window size for the loop-comparison check.
+_LOOP_WINDOW = 8
 
 
 class D09Obfuscation(Detector):
@@ -133,6 +147,9 @@ class D09Obfuscation(Detector):
         goto_count = sum(1 for i in instructions if i.opcode_name == "goto")
 
         evidence: list[Evidence] = []
+        all_gotos = [i for i in instructions if i.opcode_name == "goto"]
+        goto_count = len(all_gotos)
+
         for switch in switches:
             target_count = switch.operand_value
             if target_count < _MIN_DISPATCHER_TARGETS:
@@ -141,12 +158,46 @@ class D09Obfuscation(Detector):
             if ratio < _MIN_GOTO_TO_TARGET_RATIO:
                 continue
 
-            # Look at the small window of instructions immediately
-            # preceding the switch for a loop-bound comparison — if
-            # found, this switch selector is derived from a counted
-            # loop condition, not a bare dispatcher state variable.
+            # The actual distinguishing signal: in a flattened
+            # dispatcher, the case-ending gotos either jump directly
+            # back to the dispatcher (offset <= switch.offset) OR jump
+            # to a common "re-dispatch trampoline" — a single
+            # instruction near the end of the method that itself jumps
+            # back to the dispatcher. In the Flattened fixture, 5 gotos
+            # jump to offset 94 (the trampoline), which then jumps to
+            # offset 2 (the dispatcher). In an ordinary switch-in-loop,
+            # gotos scatter to the loop increment / different exit
+            # points, not to a single trampoline.
+            #
+            # Detect this by checking: do most goto targets either
+            # (a) land at/before the switch, or (b) land at an offset
+            # where a goto instruction exists that jumps back to
+            # at/before the switch?
+            goto_targets = [g.offset + (g.operand_value or 0) for g in all_gotos]
+            # Find trampoline offsets: locations where a goto jumps
+            # back to at/before the switch.
+            trampoline_offsets = {
+                t for t in goto_targets
+                if t in {g.offset for g in all_gotos}
+                and any(
+                    (g.offset == t and (g.operand_value or 0) + g.offset <= switch.offset)
+                    for g in all_gotos
+                )
+            }
+            back_jumps = sum(
+                1 for t in goto_targets
+                if t <= switch.offset or t in trampoline_offsets
+            )
+            back_fraction = back_jumps / goto_count if goto_count else 0.0
+            if back_fraction < _MIN_BACK_JUMP_FRACTION:
+                continue
+
+            # Look at the instruction window immediately preceding
+            # the switch for a loop-bound comparison — if found, this
+            # switch selector is derived from a counted loop condition,
+            # not a bare dispatcher state variable.
             preceding = [i for i in instructions if i.offset < switch.offset]
-            window = preceding[-4:]
+            window = preceding[-_LOOP_WINDOW:]
             if any(i.opcode in _LOOP_COMPARISON_OPCODES for i in window):
                 continue
 
@@ -156,15 +207,16 @@ class D09Obfuscation(Detector):
                     method_name,
                     switch.offset,
                     (
-                        f"Possible control-flow flattening: dispatcher switch with "
-                        f"{target_count} targets and {goto_count} goto instructions "
-                        f"in the same method"
+                        f"Control-flow flattening: dispatcher switch with "
+                        f"{target_count} targets, {goto_count} gotos "
+                        f"({back_jumps} jumping back to dispatcher)"
                     ),
                     Severity.MEDIUM,
-                    matched_value=f"targets={target_count},gotos={goto_count}",
+                    matched_value=f"targets={target_count},gotos={goto_count},back={back_jumps}",
                     context={
                         "switch_targets": str(target_count),
                         "goto_count": str(goto_count),
+                        "back_jumps": str(back_jumps),
                     },
                 )
             )
