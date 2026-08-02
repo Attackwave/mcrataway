@@ -47,8 +47,8 @@ def test_d04_no_false_positive():
     assert len(D04FilesystemJarMod().analyze_class(parsed)) == 0
 
 
-def test_d04_detects_minecraft_path():
-    data = _build_class([".minecraft/session.json"])
+def test_d04_detects_credential_path():
+    data = _build_class([".minecraft/launcher_accounts.json"])
     parsed = parse_class(data)
     assert parsed is not None
     evs = D04FilesystemJarMod().analyze_class(parsed)

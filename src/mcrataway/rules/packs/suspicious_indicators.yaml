@@ -12,7 +12,7 @@ rules:
       - kind: "literal"
         value: "HttpURLConnection"
       - kind: "literal"
-        value: "session"
+        value: "webhook"
     condition: "count() >= 2"
 
   - id: "discord_webhook_exfil"

@@ -20,6 +20,7 @@ class ModMetadata:
     mixins: list[str] = field(default_factory=list)
     main_class: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
+    declared_nested_jars: list[str] = field(default_factory=list)
 
 
 def parse_fabric_mod_json(data: bytes) -> ModMetadata:
@@ -52,6 +53,14 @@ def parse_fabric_mod_json(data: bytes) -> ModMetadata:
     mixins = obj.get("mixins", [])
     if isinstance(mixins, list):
         meta.mixins = [str(m) for m in mixins]
+
+    jars = obj.get("jars", [])
+    if isinstance(jars, list):
+        for jar in jars:
+            if isinstance(jar, dict) and "file" in jar:
+                meta.declared_nested_jars.append(str(jar["file"]))
+            elif isinstance(jar, str):
+                meta.declared_nested_jars.append(jar)
 
     return meta
 
@@ -163,19 +172,63 @@ def parse_manifest_mf(data: bytes) -> ModMetadata:
     return meta
 
 
+def parse_jarjar_metadata(data: bytes) -> list[str]:
+    """Parse a Forge JarJar ``META-INF/jarjar/metadata.json`` file.
+
+    Returns the list of declared nested-jar paths. JarJar's format
+    stores them under ``jars[].identifier.path`` (or a plain
+    ``jars[].path`` in older variants). An empty list on parse failure
+    is the safe default — an undeclared nested jar is suspicious, so
+    failing to parse the manifest must not silently mark everything as
+    "declared".
+    """
+    try:
+        obj = json.loads(data)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return []
+
+    jars = obj.get("jars", [])
+    if not isinstance(jars, list):
+        return []
+
+    paths: list[str] = []
+    for jar in jars:
+        if not isinstance(jar, dict):
+            continue
+        identifier = jar.get("identifier", {})
+        if isinstance(identifier, dict):
+            path = identifier.get("path")
+            if isinstance(path, str):
+                paths.append(path)
+        path = jar.get("path")
+        if isinstance(path, str):
+            paths.append(path)
+    return paths
+
+
 def parse_archive_manifest(entries: dict[str, bytes]) -> ModMetadata:
-    """Detect and parse the mod manifest from archive entries."""
+    """Detect and parse the mod manifest from archive entries.
+
+    Also extracts declared nested-jar paths from Forge JarJar's
+    ``META-INF/jarjar/metadata.json`` when present, merging them into
+    the returned metadata regardless of which loader the mod uses —
+    a Fabric mod can still bundle JarJar-format nested jars.
+    """
     if "fabric.mod.json" in entries:
-        return parse_fabric_mod_json(entries["fabric.mod.json"])
+        meta: ModMetadata = parse_fabric_mod_json(entries["fabric.mod.json"])
+    elif "mcmod.info" in entries:
+        meta = parse_mcmod_info(entries["mcmod.info"])
+    elif "META-INF/MANIFEST.MF" in entries:
+        meta = parse_manifest_mf(entries["META-INF/MANIFEST.MF"])
+    else:
+        meta = ModMetadata()
+        for key in entries:
+            if key.endswith("mods.toml"):
+                meta = parse_mods_toml(entries[key])
+                break
 
-    if "mcmod.info" in entries:
-        return parse_mcmod_info(entries["mcmod.info"])
+    jarjar_key = "META-INF/jarjar/metadata.json"
+    if jarjar_key in entries:
+        meta.declared_nested_jars.extend(parse_jarjar_metadata(entries[jarjar_key]))
 
-    for key in entries:
-        if key.endswith("mods.toml"):
-            return parse_mods_toml(entries[key])
-
-    if "META-INF/MANIFEST.MF" in entries:
-        return parse_manifest_mf(entries["META-INF/MANIFEST.MF"])
-
-    return ModMetadata()
+    return meta

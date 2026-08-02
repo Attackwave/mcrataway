@@ -53,8 +53,14 @@ class D04FilesystemJarMod(Detector):
                         )
                     )
 
-        # Check for credential paths
-        suspicious_paths = ["session.json", "launcher_accounts.json"]
+        # Check for credential paths — only the genuinely sensitive
+        # ones. "session.json" is used by Minecraft itself for
+        # non-credential purposes (e.g. game state, mod config), so
+        # it was removed here: flagging it as HIGH on every mod that
+        # references the name produces massive false positives. D08
+        # already covers credential-file reads with path-context
+        # gating.
+        suspicious_paths = ["launcher_accounts.json", "launcher_profiles.json"]
         for s in cp.all_strings():
             for sp in suspicious_paths:
                 if sp in s:
