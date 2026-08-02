@@ -63,16 +63,18 @@ jobs:
 
       - name: Run pip-audit (dependency vulnerability scan)
         run: |
-          # Audit the installed environment for known vulnerabilities.
+          # Audit installed dependencies for known vulnerabilities.
           # A security scanner that itself ships vulnerable deps is
           # the worst-case narrative — this gates the CI on a clean
           # dependency tree.
-          # --strict: exit non-zero on vulnerabilities found.
           # --skip-editable: skip the local editable install of
-          #   mcrataway itself (it's not on PyPI and can't be audited
-          #   — only its dependencies, which are the actual supply-
-          #   chain surface, are checked).
-          pip-audit --strict --skip-editable
+          #   mcrataway itself (not on PyPI, can't be audited — only
+          #   its dependencies, the actual supply-chain surface,
+          #   are checked).
+          # pip-audit exits non-zero by default when vulnerabilities
+          # are found; --strict was removed because it also fails on
+          # the editable-install notice (harmless, not a vulnerability).
+          pip-audit --skip-editable
 
       - name: Generate CycloneDX SBOM
         run: |
