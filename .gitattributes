@@ -1,0 +1,13 @@
+# Rule packs and their detached signatures must keep LF line endings
+# on every platform — the Ed25519 signature is over the file's exact
+# bytes, so a CRLF checkout on Windows would break signature
+# verification. Force LF here so `git checkout` on Windows produces
+# the same bytes the signing workflow signed on Linux.
+src/mcrataway/rules/packs/*.yaml text eol=lf
+src/mcrataway/rules/packs/*.yaml.sig text eol=lf
+
+# YAML config files in general are line-ending-sensitive enough
+# (PyYAML round-trips, rule-loader regex matching) that forcing LF is
+# safer than relying on per-user core.autocrlf settings.
+*.yaml text eol=lf
+*.yml text eol=lf
