@@ -487,6 +487,28 @@
       min-height: 0;
     }
 
+    /* Findings/History left panes: filter row + item list. .split-left
+       had no rules at all, so it defaulted to a plain block box that
+       just sized itself to its content instead of filling the grid
+       row's full height — the item list then only showed however many
+       rows fit in that shrunk-down box (page itself doesn't scroll,
+       body is a fixed 100vh app shell; see .screen-content). Stretch
+       .split-left to the row's full height and let the item list (not
+       the filter row above it) be the part that scrolls, so search/
+       filter/clear-button stay pinned while the list uses all the
+       vertical space the column actually has. */
+    .split-left {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .split-left > .item-list {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+    }
+
     .split-detail {
       display: flex;
       flex-direction: column;
@@ -1161,7 +1183,26 @@
             <div class="split-left" style="display: flex; flex-direction: column; gap: 16px;">
               <div class="card" style="margin: 0;">
                 <div class="card-title">Engine Performance Tuning</div>
-                
+
+                <div class="switch-group">
+                  <div class="switch-label">
+                    <span class="switch-title">Auto-Discover Installations</span>
+                    <span class="switch-desc">Detect Minecraft launcher roots automatically on the Scan Engine page</span>
+                  </div>
+                  <label class="switch-control">
+                    <input type="checkbox" id="cfg-auto-discover-chk" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+
+                <div class="switch-group">
+                  <div class="switch-label">
+                    <span class="switch-title">Excluded Auto-Discovered Directories</span>
+                    <span class="switch-desc" id="cfg-excluded-roots-count">None excluded</span>
+                  </div>
+                  <button class="btn secondary sm" id="btn-reset-excluded-roots" style="font-size: 10px; padding: 2px 8px;">Reset</button>
+                </div>
+
                 <div class="form-group">
                   <label for="cfg-max-workers">Concurrence Workers Threads</label>
                   <select id="cfg-max-workers" class="form-control">
@@ -1415,8 +1456,6 @@
       const label = Array.from(navButtons).find(btn => btn.getAttribute('data-tab') === tabId)?.querySelector('span')?.innerText || tabId;
       activeTabTitle.innerText = label;
 
-      appendTicker(`Navigated to section: ${label}`);
-      
       // Load specific data on tab swap
       if (tabId === 'scan') loadScanPage();
       if (tabId === 'findings') loadFindings();
@@ -1459,6 +1498,7 @@
       // 2. Fetch config to load custom roots
       const configData = await apiRequest('/system/config');
       const customRoots = (configData && configData.custom_roots) ? configData.custom_roots : [];
+      const excludedRoots = (configData && configData.excluded_roots) ? configData.excluded_roots : [];
 
       const box = document.getElementById('roots-list');
       box.innerHTML = '';
@@ -1518,13 +1558,14 @@
           
           row.appendChild(label);
 
+          const btnRemove = document.createElement('button');
+          btnRemove.type = 'button';
+          btnRemove.className = 'btn-ping';
+          btnRemove.style.color = 'var(--danger)';
+          btnRemove.style.fontSize = '10px';
+          btnRemove.style.padding = '2px 6px';
+
           if (item.isCustom) {
-            const btnRemove = document.createElement('button');
-            btnRemove.type = 'button';
-            btnRemove.className = 'btn-ping';
-            btnRemove.style.color = 'var(--danger)';
-            btnRemove.style.fontSize = '10px';
-            btnRemove.style.padding = '2px 6px';
             btnRemove.innerText = 'Remove';
             btnRemove.onclick = async () => {
               const updatedCustom = customRoots.filter(r => r !== item.path);
@@ -1535,8 +1576,25 @@
               appendTicker(`Removed custom target directory: ${item.path}`);
               loadScanPage();
             };
-            row.appendChild(btnRemove);
+          } else {
+            // Auto-discovered roots aren't config-backed (re-detected on
+            // every call), so there's nothing to "Remove" — dismiss it
+            // persistently via excluded_roots instead, which /system/roots
+            // filters out on future calls.
+            btnRemove.innerText = 'Exclude';
+            btnRemove.title = 'Hide this auto-discovered directory (can be re-enabled from Settings)';
+            btnRemove.onclick = async () => {
+              if (excludedRoots.includes(item.path)) return;
+              const updatedExcluded = [...excludedRoots, item.path];
+              await apiRequest('/system/config', {
+                method: 'POST',
+                body: JSON.stringify({ excluded_roots: updatedExcluded })
+              });
+              appendTicker(`Excluded auto-discovered directory: ${item.path}`);
+              loadScanPage();
+            };
           }
+          row.appendChild(btnRemove);
 
           box.appendChild(row);
         });
@@ -2256,6 +2314,11 @@
         document.getElementById('cfg-max-depth').value = data.max_recursion_depth || 2;
         document.getElementById('cfg-quar-dir').value = data.quarantine_dir || '';
         document.getElementById('cfg-history-limit').value = data.history_max_entries || 50;
+        document.getElementById('cfg-auto-discover-chk').checked = data.auto_discover_enabled !== false;
+
+        const excludedRootsCount = (data.excluded_roots || []).length;
+        document.getElementById('cfg-excluded-roots-count').innerText =
+          excludedRootsCount === 0 ? 'None excluded' : `${excludedRootsCount} director${excludedRootsCount === 1 ? 'y' : 'ies'} excluded`;
 
         // Load date & time format settings from backend config
         const dateFmt = data.date_format || 'YYYY-MM-DD';
@@ -2399,6 +2462,24 @@
         body: JSON.stringify({ history_max_entries: val })
       });
       appendTicker(`Retained history limit adjusted: ${val} sessions`);
+    });
+
+    document.getElementById('cfg-auto-discover-chk').addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      await apiRequest('/system/config', {
+        method: 'POST',
+        body: JSON.stringify({ auto_discover_enabled: enabled })
+      });
+      appendTicker(enabled ? 'Auto-discovery enabled.' : 'Auto-discovery disabled — only custom target directories will be listed.');
+    });
+
+    document.getElementById('btn-reset-excluded-roots').addEventListener('click', async () => {
+      await apiRequest('/system/config', {
+        method: 'POST',
+        body: JSON.stringify({ excluded_roots: [] })
+      });
+      appendTicker('Excluded auto-discovered directories reset — all will reappear on the Scan Engine page.');
+      loadConfig();
     });
 
     // DateTime format listeners

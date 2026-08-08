@@ -20,6 +20,8 @@ class WhitelistRequest(BaseModel):
 
 class ConfigUpdateModel(BaseModel):
     custom_roots: list[str] | None = None
+    excluded_roots: list[str] | None = None
+    auto_discover_enabled: bool | None = None
     max_workers: int | None = None
     quarantine_suspicious: bool | None = None
     quarantine_malicious: bool | None = None
@@ -43,9 +45,20 @@ async def health() -> dict[str, str]:
 
 
 @router.get("/roots")
-async def get_roots() -> list[str]:
-    """Get discovered Minecraft installation roots."""
-    return [str(r) for r in discover_roots()]
+async def get_roots(request: Request) -> list[str]:
+    """Get discovered Minecraft installation roots.
+
+    Returns nothing at all if auto_discover_enabled is off (global kill
+    switch), otherwise excludes roots the user has individually dismissed
+    via excluded_roots — discovered roots have no per-scan "Remove"
+    button in the UI otherwise, since they're re-detected fresh on every
+    call rather than being config-backed like custom_roots.
+    """
+    config: UserConfig = request.app.state.config
+    if not config.auto_discover_enabled:
+        return []
+    excluded = set(config.excluded_roots)
+    return [str(r) for r in discover_roots() if str(r) not in excluded]
 
 
 @router.get("/browse")

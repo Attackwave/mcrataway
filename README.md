@@ -106,13 +106,13 @@ mcrataway serve
 ```
 
 Then open your browser at `http://127.0.0.1:8765` to:
-* **Target Management**: Select auto-detected launcher roots or add custom mod directories with toggle checkboxes.
+* **Target Management**: Select auto-detected launcher roots or add custom mod directories with toggle checkboxes; dismiss an individual auto-detected root you don't want listed via "Exclude" (undo from Settings).
 * **Live Malware Scanner**: View real-time WebSocket scan progress, file counts, and detailed threat detections.
 * **Findings**: Review currently flagged files across all recent scans, filterable by severity, with a one-click clear when you're done triaging.
 * **History**: Browse or delete past completed scan sessions (individually or all at once) — persisted to disk, so they survive a server restart.
 * **Rule Packs**: Enable or disable individual threat detection rules and fetch latest remote signature packs.
 * **Quarantine Management**: Safely isolate, restore, permanently delete, or empty quarantine.
-* **Settings**: Configure parallel workers, archive/script/config-file scanning, quarantine triggers (malicious and/or suspicious), custom quarantine folder path, retained scan-history size, and date/time display format.
+* **Settings**: Configure parallel workers, archive/script/config-file scanning, quarantine triggers (malicious and/or suspicious), custom quarantine folder path, retained scan-history size, date/time display format, and whether auto-discovery runs at all (with a one-click reset for any individually excluded directories).
 
 `--host`/`--port` (and `config`'s equivalents like quarantine triggers)
 are **not** the same thing: `--host`/`--port` only affect the current
