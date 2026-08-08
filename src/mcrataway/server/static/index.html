@@ -1211,12 +1211,14 @@
                   </label>
                 </div>
 
-                <div class="switch-group">
-                  <div class="switch-label">
-                    <span class="switch-title">Excluded Auto-Discovered Directories</span>
-                    <span class="switch-desc" id="cfg-excluded-roots-count">None excluded</span>
+                <div class="form-group">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <label style="margin: 0;">Excluded Auto-Discovered Directories</label>
+                    <button class="btn secondary sm" id="btn-reset-excluded-roots" style="font-size: 10px; padding: 2px 8px; display: none;">Reset All</button>
                   </div>
-                  <button class="btn secondary sm" id="btn-reset-excluded-roots" style="font-size: 10px; padding: 2px 8px;">Reset</button>
+                  <ul class="item-list" id="cfg-excluded-roots-list" style="max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 6px; border-radius: 8px; border: 1px solid var(--border-color);">
+                    <!-- excluded roots list items -->
+                  </ul>
                 </div>
 
                 <div class="form-group">
@@ -2331,10 +2333,7 @@
         document.getElementById('cfg-quar-dir').value = data.quarantine_dir || '';
         document.getElementById('cfg-history-limit').value = data.history_max_entries || 50;
         document.getElementById('cfg-auto-discover-chk').checked = data.auto_discover_enabled !== false;
-
-        const excludedRootsCount = (data.excluded_roots || []).length;
-        document.getElementById('cfg-excluded-roots-count').innerText =
-          excludedRootsCount === 0 ? 'None excluded' : `${excludedRootsCount} director${excludedRootsCount === 1 ? 'y' : 'ies'} excluded`;
+        renderExcludedRoots();
 
         // Load date & time format settings from backend config
         const dateFmt = data.date_format || 'YYYY-MM-DD';
@@ -2357,6 +2356,42 @@
       document.getElementById('cfg-token-status').innerText = hasKey 
         ? 'Status: Token Authentication Active' 
         : 'Status: Open Public Mode (No token set)';
+    }
+
+    function renderExcludedRoots() {
+      const box = document.getElementById('cfg-excluded-roots-list');
+      const excludedRoots = systemConfig.excluded_roots || [];
+      box.innerHTML = '';
+      excludedRoots.forEach(path => {
+        const li = document.createElement('li');
+        li.className = 'item-row';
+        li.style.padding = '8px 12px';
+        li.style.fontSize = '12px';
+        li.style.cursor = 'default';
+        li.innerHTML = `
+          <span style="font-family:var(--font-mono); word-break:break-all; color:white;">${path}</span>
+          <button class="btn danger sm" style="padding:2px 8px; font-size:10px; shrink:0; margin-left:15px;" onclick="removeExcludedRoot('${path.replace(/\\/g, '\\\\')}')">Remove</button>
+        `;
+        box.appendChild(li);
+      });
+      if (excludedRoots.length === 0) {
+        box.innerHTML = `<div style="font-style:italic; text-align:center; font-size:11px; color:var(--text-dim); padding:10px;">No directories excluded — dismiss one from the Scan Engine tab</div>`;
+      }
+      document.getElementById('btn-reset-excluded-roots').style.display = excludedRoots.length > 1 ? 'inline-block' : 'none';
+    }
+
+    async function removeExcludedRoot(path) {
+      const current = systemConfig.excluded_roots || [];
+      const updated = current.filter(p => p !== path);
+      const res = await apiRequest('/system/config', {
+        method: 'POST',
+        body: JSON.stringify({ excluded_roots: updated })
+      });
+      if (res && res.success) {
+        systemConfig = res.config;
+        renderExcludedRoots();
+        appendTicker(`Re-included auto-discovered directory: ${path}`);
+      }
     }
 
     function renderExclusions() {
