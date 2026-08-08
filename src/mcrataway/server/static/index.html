@@ -521,6 +521,19 @@
       padding-left: 24px;
     }
 
+    /* History report pane: unlike Findings' detail pane (a handful of
+       static fields, fine to scroll as one block), this one has a
+       report header + stat cards + search bar above a long file list.
+       Letting the whole pane scroll (the .split-detail default) drags
+       that header out of view along with the list — the search/filter
+       row is exactly what you still need visible while scrolling
+       through results. Pane itself no longer scrolls; only
+       #hist-report-files-box does (see its own flex/min-height rules),
+       everything above it stays pinned. */
+    #history-report-pane {
+      overflow-y: hidden;
+    }
+
     /* STATS DASHBOARD HERO */
     .dashboard-hud {
       display: grid;
@@ -1089,9 +1102,9 @@
                 <p>Select an audit session to decompress structural findings records</p>
               </div>
 
-              <div id="history-report-content" style="display: none; flex-direction: column; gap: 16px; width: 100%;">
-                
-                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+              <div id="history-report-content" style="display: none; flex-direction: column; gap: 16px; width: 100%; height: 100%; min-height: 0;">
+
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 16px; flex-shrink: 0;">
                   <div>
                     <h3 style="font-size: 14px; font-weight: 600; color: white;">Audit Report</h3>
                     <p style="font-size: 11px; color: var(--text-dim); font-family: var(--font-mono); margin-top: 2px;" id="hist-report-id">report_id</p>
@@ -1099,7 +1112,7 @@
                   <span id="hist-report-time" style="font-size: 12px; color: var(--text-secondary); font-family: var(--font-mono);">time</span>
                 </div>
 
-                <div id="hist-report-stats" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; text-align: center;">
+                <div id="hist-report-stats" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; text-align: center; flex-shrink: 0;">
                   <div style="border: 1.5px solid var(--border-color); padding: 8px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;" id="hist-card-total" onclick="setHistoryFilter('TOTAL')">
                     <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">Total</div>
                     <div style="font-size: 16px; font-weight: bold; font-family: var(--font-mono);" id="hist-stat-total">0</div>
@@ -1118,7 +1131,7 @@
                   </div>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; flex-shrink: 0;">
                   <span style="font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--text-secondary);">Flagged File Verdicts:</span>
                   <input type="text" id="history-report-search" class="form-control" placeholder="Search files, paths..." style="max-width: 200px; font-size: 11px; padding: 4px 8px; height: 26px;">
                 </div>
