@@ -9,7 +9,7 @@ from mcrataway.config import UserConfig
 from mcrataway.core.quarantine import QuarantineManager
 from mcrataway.core.scan_engine import ScanEngine
 from mcrataway.discovery.os_paths import discover_roots
-from mcrataway.discovery.walker import FileWalker
+from mcrataway.discovery.walker import FileWalker, is_game_layout_root
 from mcrataway.rules.loader import RulePackLoader
 
 
@@ -55,19 +55,25 @@ def _run_scan(
         max_nesting_depth=config.max_recursion_depth,
     )
 
-    walker = FileWalker(
-        scan_archives=config.scan_archives,
-        scan_scripts=config.scan_scripts,
-        scan_configs=config.scan_configs,
-        max_depth=config.max_recursion_depth,
-        # User-supplied roots (no auto-discovery) should be walked in
-        # full; auto-discovered roots keep the scan-subdir restriction
-        # so we do not traverse the user's entire home directory.
-        restrict_to_scan_subdirs=auto_discover,
-    )
-
+    # restrict_to_scan_subdirs is decided per root, not once for the
+    # whole scan: the GUI always sends auto_discover=false (it passes an
+    # explicit `roots` list either way — see routes/scan.py), so keying
+    # this off that flag meant every GUI scan walked every selected root
+    # in full, including auto-discovered .minecraft installs. A launcher
+    # root scanned in full picks up unrelated launcher-internal folders
+    # (e.g. an embedded browser's extension cache) that "check scripts
+    # inside mods" was never meant to reach — restrict those, but keep
+    # walking arbitrary user-supplied paths (e.g. a mod backup folder)
+    # in full since they aren't a known launcher layout.
     all_files: list[Path] = []
     for root in root_paths:
+        walker = FileWalker(
+            scan_archives=config.scan_archives,
+            scan_scripts=config.scan_scripts,
+            scan_configs=config.scan_configs,
+            max_depth=config.max_recursion_depth,
+            restrict_to_scan_subdirs=auto_discover or is_game_layout_root(root),
+        )
         all_files.extend(walker.walk(root))
 
     results: list[dict[str, Any]] = []

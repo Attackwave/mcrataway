@@ -12,7 +12,7 @@ from mcrataway.constants import DEFAULT_HOST, DEFAULT_PORT, SCANNER_VERSION
 from mcrataway.core.quarantine import QuarantineManager
 from mcrataway.core.scan_engine import ScanEngine
 from mcrataway.discovery.os_paths import discover_roots
-from mcrataway.discovery.walker import FileWalker
+from mcrataway.discovery.walker import FileWalker, is_game_layout_root
 from mcrataway.reporting.console_writer import ConsoleWriter
 from mcrataway.rulegen.cli import rulegen
 from mcrataway.rules.loader import RulePackLoader
@@ -141,20 +141,6 @@ def scan(
         excluded_paths=config.excluded_paths,
     )
 
-    is_game_layout = auto_discover or (
-        bool(paths) and all(r.name in (".minecraft", "instances", "PrismLauncher") for r in roots)
-    )
-
-    walker = FileWalker(
-        scan_archives=config.scan_archives,
-        scan_scripts=config.scan_scripts,
-        scan_configs=config.scan_configs,
-        max_depth=config.max_recursion_depth,
-        # Explicit user paths are scanned in full unless they explicitly point to
-        # a known game root like .minecraft, in which case we restrict to scan subdirs.
-        restrict_to_scan_subdirs=is_game_layout,
-    )
-
     rich.print(f"[bold]Scanning {len(roots)} root(s)...[/bold]")
 
     from rich.progress import (
@@ -183,6 +169,18 @@ def scan(
         for root in roots:
             task = progress.add_task(f"[cyan]Discovering files in {root.name}...", total=None)
 
+            # Decided per root, not once for the whole scan: --auto
+            # (auto_discover) always restricts, but a plain user-supplied
+            # path only restricts if it explicitly points at a known
+            # launcher layout (e.g. .minecraft itself), not for e.g. a
+            # mod backup folder that should be walked in full.
+            walker = FileWalker(
+                scan_archives=config.scan_archives,
+                scan_scripts=config.scan_scripts,
+                scan_configs=config.scan_configs,
+                max_depth=config.max_recursion_depth,
+                restrict_to_scan_subdirs=auto_discover or is_game_layout_root(root),
+            )
             files = walker.walk(root)
             if not files:
                 progress.stop_task(task)
