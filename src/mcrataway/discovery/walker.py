@@ -9,6 +9,27 @@ from mcrataway.constants import (
     SCRIPT_EXTENSIONS,
 )
 
+# Directory names that mark a path as a known Minecraft install layout
+# (client launcher root, mod-loader instance folder). Used to decide
+# per-root whether a scan should restrict itself to SCAN_SUBDIRS or walk
+# everything — see is_game_layout_root().
+_GAME_ROOT_NAMES = {".minecraft", "instances", "PrismLauncher"}
+
+
+def is_game_layout_root(path: Path) -> bool:
+    """Whether *path* itself looks like a known Minecraft install root.
+
+    Used to decide, per scan target, whether FileWalker should restrict
+    itself to SCAN_SUBDIRS (mods/, config/, etc.) or walk the directory
+    in full. A user-supplied path that happens to point at a real
+    ``.minecraft``/``instances``/``PrismLauncher`` folder should get the
+    same restriction as an auto-discovered root — scanning it in full
+    would otherwise walk unrelated launcher-internal folders (browser
+    cache, logs, saves' region files, ...) that were never part of
+    "check scripts inside mods".
+    """
+    return path.name in _GAME_ROOT_NAMES
+
 
 class FileWalker:
     """Walk Minecraft roots and collect scannable files.

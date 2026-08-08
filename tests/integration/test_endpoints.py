@@ -352,3 +352,37 @@ async def test_findings_clear_does_not_affect_history(client: AsyncClient, tmp_p
     history_resp = await client.get(f"/history/{job_id}")
     assert history_resp.status_code == 200
     assert "error" not in history_resp.json()
+
+
+@pytest.mark.asyncio
+async def test_gui_scan_of_minecraft_root_skips_non_mod_scripts(
+    client: AsyncClient, tmp_path: Path
+):
+    """A GUI-initiated scan (the /scan/ endpoint always sends
+    auto_discover=false — see server/static/index.html — because it
+    already passes an explicit `roots` list) must still restrict itself
+    to known mod-related subfolders when a selected root is a real
+    .minecraft-style launcher layout. Regression test for a bug where
+    "Analyze Config Scripts" (intended: scripts inside mods) ended up
+    scanning arbitrary .js files anywhere under .minecraft/, including
+    an embedded browser's extension cache — because auto_discover=false
+    disabled the SCAN_SUBDIRS restriction entirely, not just the
+    discover_roots() auto-detection it's actually meant to control.
+    """
+    minecraft_root = tmp_path / ".minecraft"
+    (minecraft_root / "mods").mkdir(parents=True)
+    (minecraft_root / "mods" / "example.js").write_text("// a script inside a mod folder")
+
+    # Simulates an embedded-browser cache path like the one that leaked
+    # into scan results: not inside mods/, config/, kubejs/, etc.
+    webcache_dir = minecraft_root / "webcache2" / "Default" / "Extensions" / "somefile" / "js"
+    webcache_dir.mkdir(parents=True)
+    (webcache_dir / "content-util.js").write_text("// unrelated browser extension code")
+
+    job_id = await _run_scan_to_completion(client, [str(minecraft_root)])
+    report_resp = await client.get(f"/reports/{job_id}")
+    assert report_resp.status_code == 200
+    scanned_paths = {f["file_path"] for f in report_resp.json()["files"]}
+
+    assert any("example.js" in p for p in scanned_paths)
+    assert not any("content-util.js" in p for p in scanned_paths)
