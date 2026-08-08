@@ -46,6 +46,42 @@ async def test_roots(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_roots_filters_excluded_roots(client: AsyncClient, monkeypatch, tmp_path):
+    fake_root = tmp_path / "fake_minecraft"
+    monkeypatch.setattr(
+        "mcrataway.server.routes.system.discover_roots", lambda: [fake_root]
+    )
+
+    resp = await client.get("/system/roots")
+    assert str(fake_root) in resp.json()
+
+    await client.post("/system/config", json={"excluded_roots": [str(fake_root)]})
+    resp = await client.get("/system/roots")
+    assert str(fake_root) not in resp.json()
+
+    # Resetting excluded_roots brings it back — it isn't gone forever.
+    await client.post("/system/config", json={"excluded_roots": []})
+    resp = await client.get("/system/roots")
+    assert str(fake_root) in resp.json()
+
+
+@pytest.mark.asyncio
+async def test_roots_respects_auto_discover_enabled(client: AsyncClient, monkeypatch, tmp_path):
+    fake_root = tmp_path / "fake_minecraft"
+    monkeypatch.setattr(
+        "mcrataway.server.routes.system.discover_roots", lambda: [fake_root]
+    )
+
+    await client.post("/system/config", json={"auto_discover_enabled": False})
+    resp = await client.get("/system/roots")
+    assert resp.json() == []
+
+    await client.post("/system/config", json={"auto_discover_enabled": True})
+    resp = await client.get("/system/roots")
+    assert str(fake_root) in resp.json()
+
+
+@pytest.mark.asyncio
 async def test_system_browse(client: AsyncClient):
     resp = await client.get("/system/browse")
     assert resp.status_code == 200

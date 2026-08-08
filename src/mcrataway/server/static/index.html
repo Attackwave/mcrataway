@@ -361,6 +361,8 @@
       display: flex;
       flex-direction: column;
       gap: 2px;
+      flex: 1;
+      min-width: 0;
     }
 
     .switch-title {
@@ -380,6 +382,7 @@
       width: 44px;
       height: 22px;
       cursor: pointer;
+      flex-shrink: 0;
     }
 
     .switch-control input {
@@ -487,6 +490,28 @@
       min-height: 0;
     }
 
+    /* Findings/History left panes: filter row + item list. .split-left
+       had no rules at all, so it defaulted to a plain block box that
+       just sized itself to its content instead of filling the grid
+       row's full height — the item list then only showed however many
+       rows fit in that shrunk-down box (page itself doesn't scroll,
+       body is a fixed 100vh app shell; see .screen-content). Stretch
+       .split-left to the row's full height and let the item list (not
+       the filter row above it) be the part that scrolls, so search/
+       filter/clear-button stay pinned while the list uses all the
+       vertical space the column actually has. */
+    .split-left {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .split-left > .item-list {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+    }
+
     .split-detail {
       display: flex;
       flex-direction: column;
@@ -494,6 +519,19 @@
       min-height: 0;
       border-left: 1px solid var(--border-color);
       padding-left: 24px;
+    }
+
+    /* History report pane: unlike Findings' detail pane (a handful of
+       static fields, fine to scroll as one block), this one has a
+       report header + stat cards + search bar above a long file list.
+       Letting the whole pane scroll (the .split-detail default) drags
+       that header out of view along with the list — the search/filter
+       row is exactly what you still need visible while scrolling
+       through results. Pane itself no longer scrolls; only
+       #hist-report-files-box does (see its own flex/min-height rules),
+       everything above it stays pinned. */
+    #history-report-pane {
+      overflow-y: hidden;
     }
 
     /* STATS DASHBOARD HERO */
@@ -1064,9 +1102,9 @@
                 <p>Select an audit session to decompress structural findings records</p>
               </div>
 
-              <div id="history-report-content" style="display: none; flex-direction: column; gap: 16px; width: 100%;">
-                
-                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;">
+              <div id="history-report-content" style="display: none; flex-direction: column; gap: 16px; width: 100%; height: 100%; min-height: 0;">
+
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 16px; flex-shrink: 0;">
                   <div>
                     <h3 style="font-size: 14px; font-weight: 600; color: white;">Audit Report</h3>
                     <p style="font-size: 11px; color: var(--text-dim); font-family: var(--font-mono); margin-top: 2px;" id="hist-report-id">report_id</p>
@@ -1074,7 +1112,7 @@
                   <span id="hist-report-time" style="font-size: 12px; color: var(--text-secondary); font-family: var(--font-mono);">time</span>
                 </div>
 
-                <div id="hist-report-stats" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; text-align: center;">
+                <div id="hist-report-stats" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; text-align: center; flex-shrink: 0;">
                   <div style="border: 1.5px solid var(--border-color); padding: 8px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;" id="hist-card-total" onclick="setHistoryFilter('TOTAL')">
                     <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase;">Total</div>
                     <div style="font-size: 16px; font-weight: bold; font-family: var(--font-mono);" id="hist-stat-total">0</div>
@@ -1093,11 +1131,11 @@
                   </div>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; flex-shrink: 0;">
                   <span style="font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--text-secondary);">Flagged File Verdicts:</span>
                   <input type="text" id="history-report-search" class="form-control" placeholder="Search files, paths..." style="max-width: 200px; font-size: 11px; padding: 4px 8px; height: 26px;">
                 </div>
-                <div id="hist-report-files-box" style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; max-height: 300px;">
+                <div id="hist-report-files-box" style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; min-height: 0;">
                   <!-- reports files items -->
                 </div>
               </div>
@@ -1161,7 +1199,28 @@
             <div class="split-left" style="display: flex; flex-direction: column; gap: 16px;">
               <div class="card" style="margin: 0;">
                 <div class="card-title">Engine Performance Tuning</div>
-                
+
+                <div class="switch-group">
+                  <div class="switch-label">
+                    <span class="switch-title">Auto-Discover Installations</span>
+                    <span class="switch-desc">Detect Minecraft launcher roots automatically on the Scan Engine page</span>
+                  </div>
+                  <label class="switch-control">
+                    <input type="checkbox" id="cfg-auto-discover-chk" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+
+                <div class="form-group">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <label style="margin: 0;">Excluded Auto-Discovered Directories</label>
+                    <button class="btn secondary sm" id="btn-reset-excluded-roots" style="font-size: 10px; padding: 2px 8px; display: none;">Reset All</button>
+                  </div>
+                  <ul class="item-list" id="cfg-excluded-roots-list" style="max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 6px; border-radius: 8px; border: 1px solid var(--border-color);">
+                    <!-- excluded roots list items -->
+                  </ul>
+                </div>
+
                 <div class="form-group">
                   <label for="cfg-max-workers">Concurrence Workers Threads</label>
                   <select id="cfg-max-workers" class="form-control">
@@ -1415,8 +1474,6 @@
       const label = Array.from(navButtons).find(btn => btn.getAttribute('data-tab') === tabId)?.querySelector('span')?.innerText || tabId;
       activeTabTitle.innerText = label;
 
-      appendTicker(`Navigated to section: ${label}`);
-      
       // Load specific data on tab swap
       if (tabId === 'scan') loadScanPage();
       if (tabId === 'findings') loadFindings();
@@ -1459,6 +1516,7 @@
       // 2. Fetch config to load custom roots
       const configData = await apiRequest('/system/config');
       const customRoots = (configData && configData.custom_roots) ? configData.custom_roots : [];
+      const excludedRoots = (configData && configData.excluded_roots) ? configData.excluded_roots : [];
 
       const box = document.getElementById('roots-list');
       box.innerHTML = '';
@@ -1518,13 +1576,14 @@
           
           row.appendChild(label);
 
+          const btnRemove = document.createElement('button');
+          btnRemove.type = 'button';
+          btnRemove.className = 'btn-ping';
+          btnRemove.style.color = 'var(--danger)';
+          btnRemove.style.fontSize = '10px';
+          btnRemove.style.padding = '2px 6px';
+
           if (item.isCustom) {
-            const btnRemove = document.createElement('button');
-            btnRemove.type = 'button';
-            btnRemove.className = 'btn-ping';
-            btnRemove.style.color = 'var(--danger)';
-            btnRemove.style.fontSize = '10px';
-            btnRemove.style.padding = '2px 6px';
             btnRemove.innerText = 'Remove';
             btnRemove.onclick = async () => {
               const updatedCustom = customRoots.filter(r => r !== item.path);
@@ -1535,8 +1594,25 @@
               appendTicker(`Removed custom target directory: ${item.path}`);
               loadScanPage();
             };
-            row.appendChild(btnRemove);
+          } else {
+            // Auto-discovered roots aren't config-backed (re-detected on
+            // every call), so there's nothing to "Remove" — dismiss it
+            // persistently via excluded_roots instead, which /system/roots
+            // filters out on future calls.
+            btnRemove.innerText = 'Exclude';
+            btnRemove.title = 'Hide this auto-discovered directory (can be re-enabled from Settings)';
+            btnRemove.onclick = async () => {
+              if (excludedRoots.includes(item.path)) return;
+              const updatedExcluded = [...excludedRoots, item.path];
+              await apiRequest('/system/config', {
+                method: 'POST',
+                body: JSON.stringify({ excluded_roots: updatedExcluded })
+              });
+              appendTicker(`Excluded auto-discovered directory: ${item.path}`);
+              loadScanPage();
+            };
           }
+          row.appendChild(btnRemove);
 
           box.appendChild(row);
         });
@@ -2256,6 +2332,8 @@
         document.getElementById('cfg-max-depth').value = data.max_recursion_depth || 2;
         document.getElementById('cfg-quar-dir').value = data.quarantine_dir || '';
         document.getElementById('cfg-history-limit').value = data.history_max_entries || 50;
+        document.getElementById('cfg-auto-discover-chk').checked = data.auto_discover_enabled !== false;
+        renderExcludedRoots();
 
         // Load date & time format settings from backend config
         const dateFmt = data.date_format || 'YYYY-MM-DD';
@@ -2278,6 +2356,42 @@
       document.getElementById('cfg-token-status').innerText = hasKey 
         ? 'Status: Token Authentication Active' 
         : 'Status: Open Public Mode (No token set)';
+    }
+
+    function renderExcludedRoots() {
+      const box = document.getElementById('cfg-excluded-roots-list');
+      const excludedRoots = systemConfig.excluded_roots || [];
+      box.innerHTML = '';
+      excludedRoots.forEach(path => {
+        const li = document.createElement('li');
+        li.className = 'item-row';
+        li.style.padding = '8px 12px';
+        li.style.fontSize = '12px';
+        li.style.cursor = 'default';
+        li.innerHTML = `
+          <span style="font-family:var(--font-mono); word-break:break-all; color:white;">${path}</span>
+          <button class="btn danger sm" style="padding:2px 8px; font-size:10px; shrink:0; margin-left:15px;" onclick="removeExcludedRoot('${path.replace(/\\/g, '\\\\')}')">Remove</button>
+        `;
+        box.appendChild(li);
+      });
+      if (excludedRoots.length === 0) {
+        box.innerHTML = `<div style="font-style:italic; text-align:center; font-size:11px; color:var(--text-dim); padding:10px;">No directories excluded — dismiss one from the Scan Engine tab</div>`;
+      }
+      document.getElementById('btn-reset-excluded-roots').style.display = excludedRoots.length > 1 ? 'inline-block' : 'none';
+    }
+
+    async function removeExcludedRoot(path) {
+      const current = systemConfig.excluded_roots || [];
+      const updated = current.filter(p => p !== path);
+      const res = await apiRequest('/system/config', {
+        method: 'POST',
+        body: JSON.stringify({ excluded_roots: updated })
+      });
+      if (res && res.success) {
+        systemConfig = res.config;
+        renderExcludedRoots();
+        appendTicker(`Re-included auto-discovered directory: ${path}`);
+      }
     }
 
     function renderExclusions() {
@@ -2399,6 +2513,24 @@
         body: JSON.stringify({ history_max_entries: val })
       });
       appendTicker(`Retained history limit adjusted: ${val} sessions`);
+    });
+
+    document.getElementById('cfg-auto-discover-chk').addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      await apiRequest('/system/config', {
+        method: 'POST',
+        body: JSON.stringify({ auto_discover_enabled: enabled })
+      });
+      appendTicker(enabled ? 'Auto-discovery enabled.' : 'Auto-discovery disabled — only custom target directories will be listed.');
+    });
+
+    document.getElementById('btn-reset-excluded-roots').addEventListener('click', async () => {
+      await apiRequest('/system/config', {
+        method: 'POST',
+        body: JSON.stringify({ excluded_roots: [] })
+      });
+      appendTicker('Excluded auto-discovered directories reset — all will reappear on the Scan Engine page.');
+      loadConfig();
     });
 
     // DateTime format listeners

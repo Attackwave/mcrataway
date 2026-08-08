@@ -14,6 +14,8 @@ class UserConfig:
     def __init__(
         self,
         custom_roots: list[str] | None = None,
+        excluded_roots: list[str] | None = None,
+        auto_discover_enabled: bool = True,
         max_workers: int = 4,
         quarantine_suspicious: bool = False,
         quarantine_malicious: bool = True,
@@ -30,6 +32,19 @@ class UserConfig:
         time_format: str = "24h",
     ) -> None:
         self.custom_roots = custom_roots or []
+        # Auto-discovered roots (os_paths.discover_roots()) the user has
+        # dismissed from the Scan Engine's Target Directories list. Unlike
+        # excluded_paths (a glob filter applied to individual files during
+        # a scan), this hides a whole discovered install path from the UI
+        # entirely — discovered roots have no "Remove" button by default
+        # since they aren't config-backed and would otherwise just
+        # reappear unchanged on the next server start/roots refresh.
+        self.excluded_roots = excluded_roots or []
+        # Global kill switch for auto-discovery (os_paths.discover_roots()),
+        # for users who only ever scan custom_roots and don't want any
+        # auto-detected installs showing up at all — a coarser complement
+        # to excluded_roots, which dismisses discovered paths one at a time.
+        self.auto_discover_enabled = auto_discover_enabled
         self.max_workers = max_workers
         self.quarantine_suspicious = quarantine_suspicious
         self.quarantine_malicious = quarantine_malicious
@@ -61,6 +76,8 @@ class UserConfig:
             # Filter to known keys to avoid TypeError on unknown fields
             valid_keys = {
                 "custom_roots",
+                "excluded_roots",
+                "auto_discover_enabled",
                 "max_workers",
                 "quarantine_suspicious",
                 "quarantine_malicious",
