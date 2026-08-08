@@ -166,7 +166,7 @@ bytecode alone.
 | Signal | Severity | Description |
 |--------|----------|-------------|
 | Mixin config (`*.mixins.json`) declaring a mixin class named after a sensitive target (Session, MinecraftClient, YggdrasilAuthenticationService, ClientConnection, packet encode/decode) | MEDIUM | Naming-convention signal — not a guarantee, but the same first-pass signal a human reviewer would use |
-| `@Redirect`/`@Overwrite` annotation string + sensitive target name in the same class's constant pool | HIGH | These annotations fully substitute or reroute behavior at the injection point (unlike `@Inject`, which runs alongside the original method) |
+| `Redirect`/`Overwrite` mixin annotation string + sensitive target name in the same class's constant pool | HIGH | These annotations fully substitute or reroute behavior at the injection point (unlike `Inject`, which runs alongside the original method) |
 | `FMLCorePlugin` / `FMLCorePluginContainsFMLMod` in `META-INF/MANIFEST.MF` | MEDIUM | Forge's pre-Mixin coremod mechanism — registers a ClassLoader transformer with full bytecode-rewrite access before any other mod code runs |
 
 Operates on archive entries (mixin JSON configs, the manifest) rather

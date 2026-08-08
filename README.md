@@ -43,7 +43,7 @@ mcRATAway features 14 specialized capability detectors:
 | **D10** | **Reflection Indirect** | Uncovers hidden invocations using `MethodHandles` and `LambdaMetafactory`. |
 | **D11** | **On-Chain C2** | Detects blockchain-based command-and-control infrastructure (e.g., Ethereum `eth_call` lookups). |
 | **D12** | **Resource & Datapack Exploits** | Scans `.png`, `.mcfunction`, and JSON assets for buffer overflow and script abuse. |
-| **D13** | **Mixin / Coremod Abuse** | Flags Fabric/Forge Mixins and coremods targeting session/auth/network-handling classes — bytecode rewriting that never needs to call any API the other detectors watch for. `@Redirect`/`@Overwrite` on auth-sensitive targets is rated CRITICAL. |
+| **D13** | **Mixin / Coremod Abuse** | Flags Fabric/Forge Mixins and coremods targeting session/auth/network-handling classes — bytecode rewriting that never needs to call any API the other detectors watch for. `Redirect`/`Overwrite` mixin injectors on auth-sensitive targets are rated CRITICAL. |
 | **D14** | **Signature / Manifest Tamper** | Detects classes added to a JAR after it was signed (trojanized mods) and `Class-Path` manifest entries loading external JARs. |
 
 **String reconstruction** techniques detected: byte-array hiding, char-array hiding, XOR ciphers (generic + weedhack S-box), Base64-encoded strings, and AES decryption with an embedded key literal.
