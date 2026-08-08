@@ -139,6 +139,7 @@ def scan(
         max_workers=config.max_workers,
         whitelisted_hashes=all_whitelisted,
         excluded_paths=config.excluded_paths,
+        scan_scripts=config.scan_scripts,
     )
 
     rich.print(f"[bold]Scanning {len(roots)} root(s)...[/bold]")

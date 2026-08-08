@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from mcrataway.constants import Severity, Verdict
+from mcrataway.constants import SCRIPT_EXTENSIONS, Severity, Verdict
 from mcrataway.core.evidence import Evidence, EvidenceIndex
 from mcrataway.core.quarantine import QuarantineManager
 from mcrataway.core.verdict import VerdictAggregator
@@ -55,6 +55,7 @@ class ScanEngine:
         whitelisted_hashes: set[str] | list[str] | None = None,
         excluded_paths: list[str] | None = None,
         max_nesting_depth: int = DEFAULT_MAX_NESTING_DEPTH,
+        scan_scripts: bool = True,
     ) -> None:
         self.rules = rules or []
         self.quarantine = quarantine or QuarantineManager()
@@ -64,6 +65,13 @@ class ScanEngine:
         self.whitelisted_hashes = set(whitelisted_hashes or [])
         self.excluded_paths = excluded_paths or []
         self.max_nesting_depth = max_nesting_depth
+        # Mirrors FileWalker's scan_scripts flag ("Analyze Config
+        # Scripts" in the GUI) for script files *inside* an archive —
+        # without this, disabling the setting only stopped loose
+        # .js/.lua files on disk from being scanned, while the same
+        # script bundled inside a mod JAR still got full script
+        # analysis via _analyze_archive_entries.
+        self.scan_scripts = scan_scripts
 
     @staticmethod
     def _default_detectors() -> list[Detector]:
@@ -505,6 +513,11 @@ class ScanEngine:
                     )
                 continue
 
+            if self.scan_scripts and any(
+                entry.name.lower().endswith(ext) for ext in SCRIPT_EXTENSIONS
+            ):
+                self._analyze_script_entry(entry, display_path, index)
+
             for detector in self.detectors:
                 archive_method = getattr(detector, "analyze_archive_entry", None)
                 if archive_method is None:
@@ -628,6 +641,41 @@ class ScanEngine:
         index.add_many(reconstructed_by_detector)
         if reconstructed_out is not None:
             reconstructed_out.extend(reconstructed)
+
+    def _analyze_script_entry(
+        self,
+        entry: ArchiveEntry,
+        display_path: str,
+        index: EvidenceIndex,
+    ) -> None:
+        """Run script analysis on one .js/.ts/.lua/.mcfunction archive
+        entry — the archive-nested counterpart to _scan_script(), which
+        only covers loose script files found directly on disk by
+        FileWalker. A KubeJS/Rhino script bundled inside a mod JAR is
+        just as capable of e.g. a hidden network call as one sitting
+        loose in kubejs/ — it should get the same analysis either way.
+        """
+        from mcrataway.parsers.scripts import analyze_script
+
+        entry_path = f"{display_path}!/{entry.name}"
+        try:
+            analysis = analyze_script(entry.data, entry.name)
+        except Exception:
+            return
+
+        for pattern in analysis.suspicious_patterns:
+            index.add(
+                Evidence(
+                    detector_id=f"script:{pattern['type']}",
+                    severity=Severity.MEDIUM,
+                    class_name="",
+                    method_name="",
+                    offset=0,
+                    description=pattern["description"],
+                    matched_value="",
+                    context={"archive_path": entry_path},
+                )
+            )
 
     def _evaluate_reconstructed_strings(
         self, class_file: Any, reconstructed: list[Any]

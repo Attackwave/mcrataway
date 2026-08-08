@@ -53,6 +53,7 @@ def _run_scan(
         whitelisted_hashes=all_whitelisted,
         excluded_paths=config.excluded_paths,
         max_nesting_depth=config.max_recursion_depth,
+        scan_scripts=config.scan_scripts,
     )
 
     # restrict_to_scan_subdirs is decided per root, not once for the
