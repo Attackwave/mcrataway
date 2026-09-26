@@ -183,3 +183,26 @@ class TestRulePackMatching:
         )
         pack = _rule_pack(rule)
         assert len(pack.matches_archive(entries, [])) == 1
+
+
+class TestRedosHeuristic:
+    def test_flags_the_shapes_it_is_meant_to(self) -> None:
+        from mcrataway.rules.loader import _REDO_PATTERNS
+
+        for bad in ["(a+)+", "(a*)+", "(.+)+", ".+ then (.*)+", "x(ab+c)y"]:
+            assert _REDO_PATTERNS.search(bad), bad
+        for fine in [r"Runtime\.getRuntime.*exec", "(a|b)c", "a+b*", "(abc)"]:
+            assert not _REDO_PATTERNS.search(fine), fine
+
+    def test_does_not_backtrack_on_its_own_input(self) -> None:
+        """The heuristic runs without the regex timeout. The earlier
+        form took about 0.6 s on this 27-character pattern and four times
+        longer for each further "a+"; the length stays small so a
+        regression fails here instead of hanging the suite."""
+        import time
+
+        from mcrataway.rules.loader import _REDO_PATTERNS
+
+        start = time.perf_counter()
+        _REDO_PATTERNS.search("(" + "a+" * 13)
+        assert time.perf_counter() - start < 0.1
