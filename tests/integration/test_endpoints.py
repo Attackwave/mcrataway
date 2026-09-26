@@ -386,3 +386,18 @@ async def test_gui_scan_of_minecraft_root_skips_non_mod_scripts(
 
     assert any("example.js" in p for p in scanned_paths)
     assert not any("content-util.js" in p for p in scanned_paths)
+
+
+@pytest.mark.asyncio
+async def test_rule_test_does_not_reveal_whether_a_path_exists(client: AsyncClient, tmp_path):
+    """Outside the scan roots, an existing and a missing file get the
+    same answer; otherwise the endpoint probes the whole disk."""
+    existing = tmp_path / "exists.jar"
+    existing.write_bytes(b"PK")
+    missing = tmp_path / "missing.jar"
+    answers = []
+    for path in (existing, missing):
+        resp = await client.post("/rules/test", json={"file_path": str(path)})
+        assert resp.status_code == 200
+        answers.append(resp.json())
+    assert answers[0] == answers[1] == {"error": "File is outside the allowed scan roots"}
