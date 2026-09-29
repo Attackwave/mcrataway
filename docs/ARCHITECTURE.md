@@ -46,6 +46,9 @@ mcrataway is a Minecraft mod malware scanner that analyzes Java bytecode, script
 │  D10  Reflection indirect      (MethodHandles, LambdaMetafac.) │
 │  D11  On-chain C2              (eth_call, 0xce6d41de)          │
 │  D12  Resource/datapack exploit (PNG overflow, .mcfunction)    │
+│  D13  Mixin / coremod abuse    (auth/network-class rewriting)  │
+│  D14  Signature / manifest tamper (post-signing classes,       │
+│                                    Class-Path loading)         │
 │                                                                 │
 │  Signature Rules — YAML-defined, multi-string correlation      │
 └───────────────────────┬─────────────────────────────────────────┘
@@ -64,7 +67,8 @@ mcrataway is a Minecraft mod malware scanner that analyzes Java bytecode, script
 │  Quarantine — copy to safe dir, write manifest, replace with   │
 │  placeholder. Reversible via restore. No auto-delete.          │
 │                                                                 │
-│  Reporting — JSON, self-contained HTML, Rich console table     │
+│  Reporting — JSON, SARIF 2.1.0, self-contained HTML, Rich      │
+│  console table, append-only JSONL audit log                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
