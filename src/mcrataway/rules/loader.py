@@ -55,8 +55,14 @@ _REGEX_TIMEOUT_SECONDS = 1.0
 # A first line of defense (skip obviously bad patterns before ever
 # running them) — the per-match timeout above is the backstop for
 # patterns this heuristic does not catch.
+#
+# The heuristic runs on stdlib `re` without that timeout, so it must not
+# backtrack itself. It used to repeat a group that already allowed
+# repetition, `\(([^()]*\+[^()]*)+\)`, and took seconds on a 29-character
+# pattern such as "(" followed by "a+" fourteen times. The form below
+# matches exactly the same strings in linear time.
 _REDO_PATTERNS = re.compile(
-    r"(\(([^()]*\+[^()]*)+\)|\(([^()]*\*)[^()]*\)\+|(\.\+)\+|(\.\*)\+)"
+    r"(\([^()]*\+[^()]*\)|\([^()]*\*[^()]*\)\+|(\.\+)\+|(\.\*)\+)"
 )
 
 # Sliding-window tail length carried between entries so a literal or

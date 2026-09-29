@@ -57,12 +57,15 @@ async def test_rule(req: RuleTestRequest, request: Request) -> dict[str, Any]:
     except Exception:
         return {"error": "Invalid file path"}
 
-    if not path.exists():
-        return {"error": "File not found"}
-
+    # The allowlist is checked before existence: the other way round,
+    # "File not found" versus "outside the allowed scan roots" told a
+    # caller whether any path on disk exists.
     allowed = _allowed_roots(request.app.state.config)
     if not any(path == root or root in path.parents for root in allowed):
         return {"error": "File is outside the allowed scan roots"}
+
+    if not path.exists():
+        return {"error": "File not found"}
 
     loader = RulePackLoader()
     loader.load_defaults()
