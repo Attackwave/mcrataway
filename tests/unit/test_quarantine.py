@@ -33,7 +33,13 @@ def qm(tmp_path: Path) -> QuarantineManager:
     return QuarantineManager(quarantine_dir=tmp_path / "quarantine")
 
 
-@pytest.mark.parametrize("payload", [b"x", b"\x00\xff" * 4096, bytes(range(256)) * 17])
+# Explicit ids: pytest derives ids from bytes values and exports them via
+# PYTEST_CURRENT_TEST, which overflows Windows' 32767-char env var limit.
+@pytest.mark.parametrize(
+    "payload",
+    [b"x", b"\x00\xff" * 4096, bytes(range(256)) * 17],
+    ids=["1-byte", "8k-binary", "4k-all-byte-values"],
+)
 def test_quarantine_then_restore_is_byte_identical(
     tmp_path: Path, qm: QuarantineManager, payload: bytes
 ) -> None:
