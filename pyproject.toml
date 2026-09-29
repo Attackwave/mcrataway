@@ -6,15 +6,15 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.110.0",
-    "uvicorn[standard]>=0.29.0",
-    "pydantic>=2.0.0",
-    "websockets>=12.0",
-    "click>=8.1.0",
-    "rich>=13.0.0",
-    "PyYAML>=6.0",
-    "cryptography>=42.0.0",
-    "regex>=2024.4.16",
+    "fastapi>=0.142.0",
+    "uvicorn[standard]>=0.54.0",
+    "pydantic>=2.13.0",
+    "websockets>=17.0",
+    "click>=8.5.0",
+    "rich>=15.0.0",
+    "PyYAML>=6.0.3",
+    "cryptography>=50.0.0",
+    "regex>=2026.9.29",
 ]
 
 [project.optional-dependencies]
