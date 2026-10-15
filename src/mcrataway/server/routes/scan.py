@@ -112,16 +112,12 @@ async def start_scan(
                 job_id,
                 actual_roots,
                 auto_discover,
-                {
-                    "custom_roots": config.custom_roots,
-                    "max_workers": config.max_workers,
-                    "quarantine_suspicious": config.quarantine_suspicious,
-                    "quarantine_malicious": config.quarantine_malicious,
-                    "scan_archives": config.scan_archives,
-                    "scan_scripts": config.scan_scripts,
-                    "scan_configs": config.scan_configs,
-                    "max_recursion_depth": config.max_recursion_depth,
-                },
+                # The whole config, not a hand-picked subset: the previous
+                # explicit list silently dropped quarantine_dir (scans
+                # quarantined into the default dir while the UI listed the
+                # configured one), whitelisted_hashes (a hash the user had
+                # whitelisted was still flagged) and excluded_paths.
+                dict(config.__dict__),
                 on_event,
             )
 
