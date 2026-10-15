@@ -15,9 +15,10 @@ behavior*:
   load it as code (D02 + D04 + D03)
 - Self-propagation: enumerate the mods directory, then write into a
   JAR — the fractureiser behavior (D04 with a mods-directory path
-  reference)
-- Native payload staging: unpack a resource, stage it as a temp file,
-  then load it as a native library (D07 + D04)
+  reference). Not implemented as a chain: D04 does not currently mark
+  a mods-directory path, and the fractureiser family is caught by the
+  rule packs, the signed-archive check and the undeclared-nested-entry
+  check.
 
 This module runs after all detectors have populated an EvidenceIndex
 for one artifact and does two things:
@@ -67,15 +68,20 @@ CHAINS: tuple[BehaviorChain, ...] = (
             "downloads a payload, stages it on disk, then loads it as code"
         ),
     ),
-    BehaviorChain(
-        name="native_payload_staging",
-        detector_ids=("d07", "d04"),
-        description=(
-            "Native library loading + filesystem write in the same class: "
-            "unpacks and loads an unpacked native payload at runtime"
-        ),
-    ),
 )
+
+# Every link of a chain has to be a capability the detector rated MEDIUM
+# or worse *in that class*, and at least one link has to be a specific
+# finding (HIGH/CRITICAL). Merely mentioning the APIs a chain is made of
+# is what a service loader, a plugin framework or a native-extraction
+# library looks like: kotlinx's FastServiceLoader, flatlaf's
+# UIDefaultsLoader, javacpp's Loader and JNA's Native each contain a
+# URL, a file write and a Class.forName/URLClassLoader — all at
+# INFO-LOW/MEDIUM, none of them suspicious. Rating that combination
+# CRITICAL flagged twenty of the 510 popular mods in the local corpus
+# and, on a third of them, was the only reason for the MALICIOUS verdict.
+_MIN_LINK_SEVERITY = Severity.MEDIUM
+_STRONG_LINK_SEVERITY = Severity.HIGH
 
 # Detector IDs that participate in at least one chain. A lone finding
 # from one of these (no chain present, no per-detector escalation
@@ -105,17 +111,24 @@ def evaluate_chains(index: EvidenceIndex) -> None:
     """
     for class_name, evs in index._class_evidence.items():
         present_detectors = {e.detector_id for e in evs}
+        strengths = index.class_strengths().get(class_name, {})
 
-        matched_chains = [
-            chain
-            for chain in CHAINS
-            if all(d in present_detectors for d in chain.detector_ids)
-        ]
+        matched_chains = [chain for chain in CHAINS if _links_hold(chain, strengths)]
 
         if matched_chains:
             _escalate_chain(index, class_name, evs, matched_chains)
         else:
             _downgrade_lone_findings(evs, present_detectors)
+
+
+def _links_hold(chain: BehaviorChain, strengths: dict[str, Severity]) -> bool:
+    """Whether every link of *chain* is present in the class as a real
+    capability, with at least one link specific enough to carry it."""
+    severities = [strengths.get(d, Severity.INFO) for d in chain.detector_ids]
+    return (
+        all(s >= _MIN_LINK_SEVERITY for s in severities)
+        and max(severities) >= _STRONG_LINK_SEVERITY
+    )
 
 
 def _escalate_chain(

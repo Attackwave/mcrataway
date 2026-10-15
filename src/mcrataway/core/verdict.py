@@ -138,10 +138,21 @@ class VerdictAggregator:
         """Force MALICIOUS if high-confidence static signals are present.
 
         This prevents heuristic undercounting of obvious malware.
+
+        The class-scoped combinations below compare each detector's
+        *highest* severity in the class, not mere co-presence: an INFO
+        network observation next to a LOW "mentions a cookie file"
+        finding says nothing, and treating it as credential theft plus
+        exfiltration made an HTTP client library MALICIOUS.
         """
+        strengths = index.class_strengths()
+
         # Credential theft + network in the same class = almost always malware
-        for class_name in index._class_evidence:
-            if index.has_cooccurring(class_name, "d08", "d02"):
+        for per_detector in strengths.values():
+            if (
+                per_detector.get("d08", Severity.INFO) >= Severity.HIGH
+                and per_detector.get("d02", Severity.INFO) >= Severity.MEDIUM
+            ):
                 return True
 
         # On-chain C2 is always malicious
@@ -149,8 +160,11 @@ class VerdictAggregator:
             return True
 
         # Native/JNI + dynamic loading in the same class = native-DLL staging
-        for class_name in index._class_evidence:
-            if index.has_cooccurring(class_name, "d07", "d03"):
+        for per_detector in strengths.values():
+            if (
+                per_detector.get("d07", Severity.INFO) >= Severity.MEDIUM
+                and per_detector.get("d03", Severity.INFO) >= Severity.HIGH
+            ):
                 return True
 
         # Any high-severity signature rule match
