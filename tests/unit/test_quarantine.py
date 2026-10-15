@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from mcrataway.core.quarantine import QuarantineManager, QuarantineOutcome
+from mcrataway.reporting.audit_log import read_audit_log
 
 
 @dataclass
@@ -206,3 +207,73 @@ def test_restore_does_not_follow_traversal_to_a_forged_manifest(
     assert qm.restore("../forged") is False
     assert not target.exists()
     assert (forged / "payload.bin").exists()
+
+
+def _forge_original_path(qm: QuarantineManager, sha: str, recorded: str) -> None:
+    """Rewrite a manifest's original_path, leaving the rest of it valid."""
+    manifest_path = qm.quarantine_dir / sha / "manifest.json"
+    data = json.loads(manifest_path.read_text())
+    data["original_path"] = recorded
+    manifest_path.write_text(json.dumps(data))
+
+
+def test_restore_refuses_a_payload_that_no_longer_matches_its_hash(
+    tmp_path: Path, qm: QuarantineManager
+) -> None:
+    """A file inside a hash-named directory is not trustworthy evidence:
+    if it was replaced or edited in place, restoring it would put
+    something other than the scanned file back onto disk."""
+    mod = tmp_path / "evil.jar"
+    mod.write_bytes(b"malware")
+    sha = _quarantine(qm, mod)
+    payload = qm.quarantine_dir / sha / "evil.jar"
+    payload.write_bytes(b"not the quarantined bytes")
+
+    assert qm.restore(sha) is False
+    assert not mod.exists()
+    assert payload.read_bytes() == b"not the quarantined bytes"
+    assert any(entry["event_type"] == "restore_refused" for entry in read_audit_log())
+
+
+def test_restore_refuses_a_manifest_that_names_another_hash(
+    tmp_path: Path, qm: QuarantineManager
+) -> None:
+    mod = tmp_path / "evil.jar"
+    mod.write_bytes(b"malware")
+    sha = _quarantine(qm, mod)
+    manifest_path = qm.quarantine_dir / sha / "manifest.json"
+    data = json.loads(manifest_path.read_text())
+    data["sha256"] = "b" * 64
+    manifest_path.write_text(json.dumps(data))
+
+    assert qm.restore(sha) is False
+    assert not mod.exists()
+    assert (qm.quarantine_dir / sha / "evil.jar").exists()
+
+
+def test_restore_refuses_an_original_path_with_a_traversal(
+    tmp_path: Path, qm: QuarantineManager
+) -> None:
+    mod = tmp_path / "evil.jar"
+    mod.write_bytes(b"malware")
+    sha = _quarantine(qm, mod)
+    escaped = tmp_path.parent / "escaped.jar"
+    _forge_original_path(qm, sha, str(tmp_path / ".." / escaped.name))
+
+    assert qm.restore(sha) is False
+    assert not escaped.exists()
+    assert (qm.quarantine_dir / sha / "evil.jar").exists()
+
+
+def test_restore_refuses_a_destination_inside_the_vault(
+    tmp_path: Path, qm: QuarantineManager
+) -> None:
+    mod = tmp_path / "evil.jar"
+    mod.write_bytes(b"malware")
+    sha = _quarantine(qm, mod)
+    inside = qm.quarantine_dir / "planted.jar"
+    _forge_original_path(qm, sha, str(inside))
+
+    assert qm.restore(sha) is False
+    assert not inside.exists()
+    assert (qm.quarantine_dir / sha / "evil.jar").exists()

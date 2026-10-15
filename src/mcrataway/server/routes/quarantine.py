@@ -1,27 +1,16 @@
 """Quarantine routes — list, quarantine, and restore files."""
 
-import hashlib
 import re
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
 
+from mcrataway.core.quarantine import sha256_file
+
 router = APIRouter(prefix="/quarantine", tags=["quarantine"])
 
 _SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
-
-
-def _sha256_file(path: Path) -> str:
-    """Compute the SHA-256 hash of a file, or empty string on error."""
-    h = hashlib.sha256()
-    try:
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(8192), b""):
-                h.update(chunk)
-    except Exception:
-        return ""
-    return h.hexdigest()
 
 
 def _is_subpath(path: Path, parent: Path) -> bool:
@@ -104,7 +93,7 @@ async def quarantine_file(
         return {"success": False, "manifest": None, "error": "File not found"}
 
     # Verify the URL hash matches the file's actual content
-    computed = _sha256_file(target)
+    computed = sha256_file(target)
     if not computed or computed != sha256:
         return {"success": False, "manifest": None, "error": "SHA-256 mismatch"}
 

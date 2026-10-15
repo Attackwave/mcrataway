@@ -2,6 +2,7 @@
 
 import contextlib
 import enum
+import hashlib
 import json
 import re
 import shutil
@@ -14,6 +15,18 @@ from mcrataway.constants import QUARANTINE_DIR
 
 # SHA-256 hashes are 64 lowercase hex characters
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
+
+
+def sha256_file(path: Path) -> str:
+    """SHA-256 of a file's contents, or ``""`` if it cannot be read."""
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(8192), b""):
+                digest.update(chunk)
+    except OSError:
+        return ""
+    return digest.hexdigest()
 
 
 @dataclass
@@ -179,7 +192,17 @@ class QuarantineManager:
             return QuarantineResult(QuarantineOutcome.FAILED)
 
     def restore(self, sha256: str) -> bool:
-        """Restore a quarantined file to its original location."""
+        """Restore a quarantined file to its original location.
+
+        The manifest is the only record of where a file came from, so it
+        is treated as untrusted input: it has to name this entry's hash,
+        the payload has to still hash to that value, and the recorded
+        original path has to be a plain path outside the vault (see
+        :meth:`_restore_destination`). A payload that no longer matches
+        is refused rather than moved back — putting something other than
+        what was quarantined onto disk is worse than leaving it isolated,
+        and a vault whose contents changed is worth an audit trail.
+        """
         if not SHA256_RE.match(sha256):
             return False
         quarantine_path = self.quarantine_dir / sha256
@@ -190,11 +213,26 @@ class QuarantineManager:
 
         try:
             manifest_data = json.loads(manifest_path.read_text())
-            original_path = Path(manifest_data["original_path"])
+            if manifest_data.get("sha256") != sha256:
+                return False
+            original_path = self._restore_destination(str(manifest_data.get("original_path", "")))
+            if original_path is None:
+                return False
             quarantined_name = Path(manifest_data["quarantined_path"]).name
             source = quarantine_path / quarantined_name
 
-            if not source.exists():
+            if not source.is_file():
+                return False
+
+            if sha256_file(source) != sha256:
+                from mcrataway.reporting.audit_log import log_event
+
+                log_event(
+                    "restore_refused",
+                    sha256=sha256,
+                    reason="payload_hash_mismatch",
+                    quarantine_path=str(source),
+                )
                 return False
 
             # Refuse to clobber an existing file at the original path —
@@ -220,6 +258,23 @@ class QuarantineManager:
 
         except Exception:
             return False
+
+    def _restore_destination(self, recorded: str) -> Path | None:
+        """Resolve a manifest's ``original_path`` into a restore target.
+
+        Returns ``None`` for anything a legitimate entry cannot contain: an
+        empty value, a ``..`` component, or a path inside the vault itself
+        (which would only ever nest the payload back into quarantine).
+        """
+        if not recorded:
+            return None
+        path = Path(recorded).expanduser()
+        if ".." in path.parts:
+            return None
+        resolved = path.resolve()
+        if resolved.is_relative_to(self.quarantine_dir):
+            return None
+        return resolved
 
     def list_quarantined(self) -> list[QuarantineManifest]:
         """List all actively quarantined items present on disk."""
