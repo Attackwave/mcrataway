@@ -111,11 +111,19 @@ class ScanEngine:
         files: list[Path],
         on_progress: Callable[[Path], None] | None = None,
         keep_evidence_index: bool = False,
+        on_result: Callable[[ArtifactResult], None] | None = None,
     ) -> list[ArtifactResult]:
         """Scan a list of files concurrently using ``max_workers`` threads.
 
         If *on_progress* is provided, it is called with each file path
         immediately before it is scanned.
+
+        If *on_result* is provided, it is called with each file's
+        :class:`ArtifactResult` as soon as that file finishes — after
+        quarantine and audit logging, so a caller forwarding it to a UI
+        sees the same state the report will contain. Like *on_progress*
+        it is invoked from the worker threads, so a caller sharing state
+        must synchronize.
 
         If *keep_evidence_index* is True, the per-archive EvidenceIndex
         built during the scan is retained on ArtifactResult.evidence_index
@@ -146,9 +154,8 @@ class ScanEngine:
                 result = self._scan_single(f, keep_evidence_index=keep_evidence_index)
                 self.maybe_quarantine(f, result)
                 self._audit_verdict(f, result)
-                return result
             except Exception as exc:
-                return ArtifactResult(
+                result = ArtifactResult(
                     file_path=str(f),
                     file_hash="",
                     verdict=Verdict.SUSPICIOUS,
@@ -162,6 +169,9 @@ class ScanEngine:
                         )
                     ],
                 )
+            if on_result:
+                on_result(result)
+            return result
 
         try:
             if self.max_workers > 1 and len(files) > 1:
