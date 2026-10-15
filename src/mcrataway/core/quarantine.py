@@ -205,8 +205,25 @@ class QuarantineManager:
         """
         if not SHA256_RE.match(sha256):
             return False
-        quarantine_path = self.quarantine_dir / sha256
-        manifest_path = quarantine_path / "manifest.json"
+
+        # Find the entry by listing the vault instead of joining the
+        # request value onto a path. The entry is identified by its hash
+        # either way, and this way every path read below is built from a
+        # directory the vault actually contains rather than from a
+        # caller-supplied string.
+        if not self.quarantine_dir.is_dir():
+            return False
+        entry = next(
+            (
+                child
+                for child in self.quarantine_dir.iterdir()
+                if child.is_dir() and child.name == sha256
+            ),
+            None,
+        )
+        if entry is None:
+            return False
+        manifest_path = entry / "manifest.json"
 
         if not manifest_path.exists():
             return False
@@ -218,7 +235,7 @@ class QuarantineManager:
             original_path = self._restore_destination(str(manifest_data.get("original_path", "")))
             if original_path is None:
                 return False
-            source = self._payload(quarantine_path, sha256)
+            source = self._payload(entry, sha256)
             if source is None:
                 from mcrataway.reporting.audit_log import log_event
 
@@ -226,7 +243,7 @@ class QuarantineManager:
                     "restore_refused",
                     sha256=sha256,
                     reason="payload_hash_mismatch",
-                    quarantine_path=str(quarantine_path),
+                    quarantine_path=str(entry),
                 )
                 return False
 
@@ -247,7 +264,7 @@ class QuarantineManager:
 
             # Clean up quarantine directory for this restored item
             with contextlib.suppress(Exception):
-                shutil.rmtree(quarantine_path)
+                shutil.rmtree(entry)
 
             return True
 

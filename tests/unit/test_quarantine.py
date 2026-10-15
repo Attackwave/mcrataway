@@ -91,6 +91,13 @@ def test_restore_rejects_ids_that_are_not_lowercase_sha256(
     assert qm.restore(bad_id) is False
 
 
+def test_restore_on_a_vault_that_does_not_exist_returns_false(qm: QuarantineManager) -> None:
+    """A fresh install has no vault directory yet — restoring from it
+    must be a no-op, not an exception."""
+    assert not qm.quarantine_dir.exists()
+    assert qm.restore("a" * 64) is False
+
+
 @pytest.mark.parametrize("bad_id", ["../outside", "..", "", "a" * 63, "../" + "a" * 64])
 def test_delete_permanently_cannot_escape_quarantine_dir(
     tmp_path: Path, qm: QuarantineManager, bad_id: str
