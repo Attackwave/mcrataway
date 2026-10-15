@@ -100,9 +100,12 @@ class TestD13MixinTargetAllowlist:
         assert "Session" in crits[0].matched_value
         assert crits[0].context.get("annotation") == "redirect_or_overwrite"
 
-    def test_mixin_into_auth_target_without_redirect_is_high(self):
-        """@Mixin into Session without @Redirect/@Overwrite is HIGH
-        (the mixin can @Inject and intercept the credential)."""
+    def test_mixin_into_auth_target_without_redirect_is_medium(self):
+        """@Mixin into Session without @Redirect/@Overwrite is MEDIUM:
+        the detector's own reasoning is that a type-descriptor reference
+        is ambiguous (the class may appear as a parameter), so the mixin
+        class name plus that reference is a lead, not proof of
+        interception."""
         data = _make_mixin_class(
             "com/evil/MixinSession",
             [
@@ -113,9 +116,9 @@ class TestD13MixinTargetAllowlist:
         parsed = parse_class(data)
         assert parsed is not None
         evs = D13MixinCoremod().analyze_class(parsed)
-        highs = [e for e in evs if e.severity == Severity.HIGH]
-        assert len(highs) == 1
-        assert "Session" in highs[0].matched_value
+        meds = [e for e in evs if e.severity == Severity.MEDIUM]
+        assert len(meds) == 1
+        assert "Session" in meds[0].matched_value
 
     def test_mixin_into_packet_encoder_is_medium(self):
         """PacketEncoder/Decoder targets are MEDIUM — many legitimate
@@ -156,15 +159,44 @@ class TestD13MixinTargetAllowlist:
         assert all(e.severity != Severity.HIGH for e in evs)
         assert all(e.severity != Severity.CRITICAL for e in evs)
 
-    def test_intermediary_word_boundary_matching(self):
-        """class_321 (Session) must NOT match class_3218 (ServerWorld)
-        — the word boundary after the number prevents this false
-        positive."""
+    def test_intermediary_ids_are_not_auth_targets(self):
+        """Regression: class_332 was listed as YggdrasilAuthenticationService
+        and class_45 as YggdrasilUserApiService. Neither can be right —
+        authlib is never obfuscated, so an authlib class has no
+        intermediary name — and every class in the local 510-mod corpus
+        that references class_321/class_332/class_45 is a block, an item,
+        a screen or a renderer. Four GUI mods (trinkets, sodiumoptionsapi,
+        better-ping-display, mega_showdown) were MALICIOUS from a
+        CRITICAL finding on class_332."""
         data = _make_mixin_class(
-            "com/example/MixinServerWorld",
+            "com/example/mixin/PlayerListHudMixin",
             [
                 "Lorg/spongepowered/asm/mixin/Mixin;",
-                "Lnet/minecraft/class_3218;",  # ServerWorld, NOT Session
+                "Lorg/spongepowered/asm/mixin/injection/Redirect;",
+                "Lnet/minecraft/class_332;",
+                "Lnet/minecraft/class_321;",
+                "Lnet/minecraft/class_45;",
+            ],
+        )
+        parsed = parse_class(data)
+        assert parsed is not None
+        evs = D13MixinCoremod().analyze_class(parsed)
+        assert all(e.severity != Severity.HIGH for e in evs)
+        assert all(e.severity != Severity.CRITICAL for e in evs)
+
+    def test_redirect_mixin_whose_name_does_not_suggest_auth_not_flagged(self):
+        """Regression: modernfix's MinecraftMixin references
+        YggdrasilAuthenticationService (as a parameter, not as its
+        target) and carries @Redirect — that combination alone was
+        CRITICAL on a legitimate mod. Without the mixin's own name
+        suggesting the auth target, a type-descriptor reference stays
+        unrated."""
+        data = _make_mixin_class(
+            "com/example/mixin/MinecraftMixin",
+            [
+                "Lorg/spongepowered/asm/mixin/Mixin;",
+                "Lorg/spongepowered/asm/mixin/injection/Redirect;",
+                "Lcom/mojang/authlib/yggdrasil/YggdrasilAuthenticationService;",
             ],
         )
         parsed = parse_class(data)

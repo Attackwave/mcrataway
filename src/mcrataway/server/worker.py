@@ -1,13 +1,14 @@
 """Scan worker — runs scan jobs off the event loop with real-time progress."""
 
 import asyncio
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from mcrataway.config import UserConfig
 from mcrataway.core.quarantine import QuarantineManager
-from mcrataway.core.scan_engine import ScanEngine
+from mcrataway.core.scan_engine import ArtifactResult, ScanEngine
 from mcrataway.discovery.os_paths import discover_roots
 from mcrataway.discovery.walker import FileWalker, is_game_layout_root
 from mcrataway.rules.loader import RulePackLoader
@@ -37,6 +38,7 @@ def _run_scan(
     rule_loader.load_defaults()
 
     quarantine_mgr = QuarantineManager(
+        quarantine_dir=config.quarantine_dir,
         do_quarantine_malicious=config.quarantine_malicious,
         do_quarantine_suspicious=config.quarantine_suspicious,
     )
@@ -80,8 +82,7 @@ def _run_scan(
     results: list[dict[str, Any]] = []
     total = len(all_files)
     # Send an initial 0% progress event so the UI does not appear
-    # frozen for the first 10 files (the modulo gate below would
-    # otherwise suppress output until i == 9).
+    # frozen before the first file has been scanned.
     if on_event:
         on_event({
             "type": "progress",
@@ -90,59 +91,43 @@ def _run_scan(
             "percent": 100.0 if total == 0 else 0.0,
         })
 
-    for i, file_path in enumerate(all_files):
-        entry: dict[str, Any]
-        try:
-            result = engine._scan_single(file_path)
-            engine.maybe_quarantine(file_path, result)
-            entry = {
-                "file_path": result.file_path,
-                "sha256": result.file_hash,
-                "verdict": result.verdict.value,
-                "confidence": result.confidence,
-                "findings": [f.to_dict() for f in result.findings],
-                "metadata": result.metadata,
-            }
-            results.append(entry)
+    # on_result runs on the engine's worker threads — the counter it
+    # shares is serialized here, for the same reason the CLI wraps its
+    # rich.progress callback in a lock (see cli.py).
+    progress_lock = threading.Lock()
+    scanned = 0
 
-            # Real-time progress on every single file for smooth progress bar updates
-            if on_event:
-                progress = (i + 1) / total if total else 1.0
-                on_event({
-                    "type": "progress",
-                    "scanned": i + 1,
-                    "total": total,
-                    "percent": round(progress * 100, 1),
-                })
-
-            if on_event and entry["verdict"] in ("MALICIOUS", "SUSPICIOUS"):
+    def on_result(result: ArtifactResult) -> None:
+        """Turn one finished artifact into a report entry and a live event."""
+        nonlocal scanned
+        entry: dict[str, Any] = {
+            "file_path": result.file_path,
+            "sha256": result.file_hash,
+            "verdict": result.verdict.value,
+            "confidence": result.confidence,
+            "findings": [f.to_dict() for f in result.findings],
+            "metadata": result.metadata,
+        }
+        results.append(entry)
+        with progress_lock:
+            scanned += 1
+            done = scanned
+        if on_event:
+            progress = done / total if total else 1.0
+            on_event({
+                "type": "progress",
+                "scanned": done,
+                "total": total,
+                "percent": round(progress * 100, 1),
+            })
+            if entry["verdict"] in ("MALICIOUS", "SUSPICIOUS"):
                 on_event({"type": "verdict", "verdict": entry})
 
-        except Exception as exc:
-            # Surface the failure instead of swallowing it silently so
-            # the job report is not falsely "all clean".
-            entry = {
-                "file_path": str(file_path),
-                "sha256": "",
-                "verdict": "SUSPICIOUS",
-                "confidence": 0.3,
-                "findings": [
-                    {
-                        "detector_id": "scan_engine",
-                        "severity": "MEDIUM",
-                        "description": f"Scan failed: {type(exc).__name__}: {exc}",
-                        "file_path": str(file_path),
-                        "class_name": "",
-                        "method_name": "",
-                        "matched_value": "",
-                    }
-                ],
-                "metadata": {},
-            }
-            results.append(entry)
-            if on_event:
-                on_event({"type": "verdict", "verdict": entry})
-            continue
+    # Delegating to the engine rather than looping over _scan_single()
+    # keeps quarantine/audit logging, the bytecode-cache cleanup, and
+    # max_workers parallelism in one place — the manual loop dropped all
+    # three.
+    engine.scan_files(all_files, on_result=on_result)
 
     return {
         "job_id": job_id,

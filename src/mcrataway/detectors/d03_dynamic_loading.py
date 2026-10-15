@@ -31,6 +31,15 @@ class D03DynamicLoading(Detector):
         dangerous_methods = {
             ("java/lang/ClassLoader", "defineClass"),
             ("java/lang/Class", "forName"),
+            # Defining a class from a byte array through a Lookup is the
+            # same capability as ClassLoader.defineClass without needing
+            # a subclass, and it is how modern loaders (and malware)
+            # avoid the ClassLoader API. MEDIUM, like defineClass: nine
+            # popular mods in the local corpus (Sodium, Embeddium,
+            # Trinkets, Cardinal Components, c2me, XaeroPlus) use it for
+            # ASM-generated code, so a hit is a lead, not a verdict.
+            ("java/lang/invoke/MethodHandles$Lookup", "defineClass"),
+            ("java/lang/invoke/MethodHandles$Lookup", "defineHiddenClass"),
         }
 
         std_lib_prefixes = (
