@@ -3,6 +3,7 @@
 import contextlib
 import fnmatch
 import hashlib
+import re
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -27,6 +28,22 @@ from mcrataway.parsers.manifest import parse_archive_manifest
 from mcrataway.parsers.string_reconstructor import ReconstructedString, reconstruct_strings
 from mcrataway.reporting.model import FileReport, Finding, ScanReport
 from mcrataway.rules.loader import RulePack
+
+# Comment prefixes of the formats CONFIG_EXTENSIONS covers (JSON5, YAML,
+# TOML, Lua/INI properties, HTML).
+_CONFIG_COMMENT_PREFIXES = ("//", "#", "--", ";", "*", "<!--")
+
+# Embedded JavaScript in a config file: a *call* with an argument, not a
+# bare mention. Matching the substring "eval(" also matched comments,
+# changelogs and localisation strings, and a SUSPICIOUS verdict on a
+# config the user can have auto-quarantined is not a false positive they
+# can shrug off. A javascript: value likewise has to look like a URI
+# carrying code — browsers tolerate the space after the colon, prose does
+# not look like a call.
+_EMBEDDED_SCRIPT_RE = re.compile(
+    r"\beval\s*\(\s*[^\s)]"
+    r"|javascript:\s*[A-Za-z_$][\w$]*\s*[.(\[]"
+)
 
 
 @dataclass
@@ -797,13 +814,21 @@ class ScanEngine:
             )
 
         findings: list[Finding] = []
-        # Check for embedded JS in JSON config
-        if "javascript:" in data or "eval(" in data:
+        # Check for embedded JS in a config file: a real call, on a line
+        # that is not a comment. Quotes the line so the report says which
+        # part of the file triggered it.
+        embedded = [
+            line.strip()
+            for line in data.splitlines()
+            if not line.lstrip().startswith(_CONFIG_COMMENT_PREFIXES)
+            and _EMBEDDED_SCRIPT_RE.search(line)
+        ]
+        if embedded:
             findings.append(
                 Finding(
                     detector_id="config:embedded_script",
                     severity=Severity.MEDIUM,
-                    description="Config contains embedded JavaScript",
+                    description=f"Config contains embedded JavaScript: {embedded[0][:160]}",
                     file_path=str(path),
                 )
             )
