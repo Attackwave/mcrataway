@@ -31,6 +31,12 @@ _STRONG_PERSISTENCE_INDICATORS = [
     "/etc/cron.daily/",
     "schtasks.exe",
     "cmd.exe /c schtasks",
+    # Linux (the dynamic-linker preload list is how a rootkit survives
+    # a reboot without touching any init system), macOS (the per-user
+    # and system-wide launch agents run at login/boot):
+    "/etc/ld.so.preload",
+    "Library/LaunchAgents",
+    "/Library/LaunchDaemons",
 ]
 
 # Bare identifiers that are weak on their own — common in

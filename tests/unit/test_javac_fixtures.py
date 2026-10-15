@@ -86,6 +86,26 @@ class TestRealBytecodeDetection:
         ]
         assert any("evil.com" in f.matched_value for f in reconstructed)
 
+    def test_xml_decoder_and_lookup_define_class_are_detected(
+        self, engine: ScanEngine, tmp_path: Path
+    ) -> None:
+        """XMLDecoder.readObject() (arbitrary object graph from XML) and
+        Lookup.defineClass() (a class defined straight from a byte array)
+        are invoke-only entry points: neither is visible in the constant
+        pool alone, and both are absent from the hand-assembled
+        fixtures."""
+        jar = _make_jar(
+            tmp_path, "unsafe.jar", {"UnsafeLookup.class": _class_bytes("UnsafeLookup")}
+        )
+        result = engine._scan_single(jar)
+        found = {(f.detector_id, f.severity.name) for f in result.findings}
+        assert ("d06", "HIGH") in found
+        # D03 rates the Lookup call MEDIUM; a lone MEDIUM is downgraded
+        # to LOW by the behavior-chain pass, so assert the detector
+        # fired rather than the post-processing severity.
+        assert any(det == "d03" for det, _ in found)
+        assert result.verdict != Verdict.CLEAN
+
 
 class TestEvasionTechniques:
     """Regression tests for the evasion techniques found during review:
