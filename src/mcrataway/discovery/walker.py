@@ -67,7 +67,7 @@ class FileWalker:
             return []
 
         results: list[Path] = []
-        self._walk_dir(root, results, depth=0)
+        self._walk_dir(root, results, depth=0, root=root)
         return results
 
     def _should_descend(self, entry: Path) -> bool:
@@ -98,12 +98,27 @@ class FileWalker:
             return True
         return bool(self.scan_configs and suffix in CONFIG_EXTENSIONS)
 
-    def _is_in_scan_dir(self, entry: Path) -> bool:
-        """Check if file is within a known scannable subdirectory."""
-        parts = set(entry.parts)
-        return bool(parts & SCAN_SUBDIRS)
+    def _is_in_scan_dir(self, entry: Path, root: Path) -> bool:
+        """Check whether *entry* sits inside a scannable folder of *root*.
 
-    def _walk_dir(self, current: Path, results: list[Path], depth: int) -> None:
+        Only the part of the path below *root* counts. Testing the whole
+        path instead lets a component **above** the root — a root living
+        under ``/home/user/config/`` is the everyday case — match for
+        every single entry, which switches the restriction off for the
+        entire tree instead of scoping it.
+        """
+        if root.name in SCAN_SUBDIRS:
+            # The root is a scannable folder itself (a custom root
+            # pointing straight at a `mods/` directory, say), so
+            # everything under it is in scope.
+            return True
+        try:
+            parts = entry.relative_to(root).parts
+        except ValueError:
+            return False
+        return bool(set(parts) & SCAN_SUBDIRS)
+
+    def _walk_dir(self, current: Path, results: list[Path], depth: int, root: Path) -> None:
         if depth > self.max_depth:
             return
 
@@ -126,13 +141,13 @@ class FileWalker:
                     and (
                         depth == 0
                         or not self.restrict_to_scan_subdirs
-                        or self._is_in_scan_dir(entry)
+                        or self._is_in_scan_dir(entry, root)
                     )
                 ):
                     # On depth 0 always descend. For deeper levels,
                     # honor restrict_to_scan_subdirs: when disabled
                     # (user-supplied root), descend unconditionally so
                     # arbitrary nested layouts are scanned.
-                    self._walk_dir(entry, results, depth + 1)
+                    self._walk_dir(entry, results, depth + 1, root)
             except (PermissionError, OSError):
                 continue

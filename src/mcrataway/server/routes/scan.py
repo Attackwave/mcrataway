@@ -128,11 +128,11 @@ async def start_scan(
             # from the live view.
             for r in result["results"]:
                 registry.add_finding(job_id, r)
-            registry.update_status(job_id, JobStatus.COMPLETED)
+            await registry.update_status(job_id, JobStatus.COMPLETED)
             registry.emit_done(job_id)
 
         except Exception as e:
-            registry.update_status(job_id, JobStatus.FAILED, error=str(e))
+            await registry.update_status(job_id, JobStatus.FAILED, error=str(e))
             registry.emit_done(job_id)
 
     # Store the task reference so it is not garbage-collected before completion

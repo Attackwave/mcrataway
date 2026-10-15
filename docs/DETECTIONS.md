@@ -24,7 +24,7 @@ Each detector analyzes parsed class files and writes evidence to a shared `Evide
 | Discord webhook URL | HIGH | Token exfiltration endpoint |
 | Suspicious URL in pool | LOW | Non-standard endpoint in constants |
 
-**Correlation**: Escalates to HIGH when combined with credential access (D08) in the same class.
+**Correlation**: D02 at MEDIUM or worse in the same class as D08 at HIGH or worse is a static-override trigger — a class that reads a credential and talks to the network.
 
 ### D03 — Dynamic Class Loading
 
@@ -34,16 +34,17 @@ Each detector analyzes parsed class files and writes evidence to a shared `Evide
 | `ClassLoader.defineClass` | HIGH | Define classes from bytecode array |
 | `Class.forName` | MEDIUM | Dynamic class resolution |
 
-**Correlation**: Escalates to CRITICAL when combined with native loading (D07) — indicates native-DLL staging pattern.
+**Correlation**: D03 at HIGH in the same class as D07 at MEDIUM or worse is a static-override trigger — the native-DLL staging pattern.
 
 ### D04 — Filesystem / JAR Modification
 
 | Signal | Severity | Description |
 |--------|----------|-------------|
-| `ZipOutputStream` | LOW | Archive creation |
-| `JarFile` / `JarOutputStream` | LOW | JAR manipulation |
-| `Files.walk` | LOW | Recursive directory traversal |
-| `.minecraft` path ref | LOW | References to Minecraft directories |
+| `ZipOutputStream` / `JarOutputStream` | INFO | Archive creation |
+| `JarFile` / `ZipFile` | INFO | JAR inspection |
+| `Files` / `Paths` / `FileOutputStream` / `RandomAccessFile` | INFO | File and directory access |
+
+Every D04 finding is INFO: writing a file, opening a JAR or walking a directory is what an ordinary mod does with its own config, so this detector contributes volume to the weighted score but never a verdict on its own. It used to report credential-file paths as well; that duplicate — one `launcher_accounts.json` constant produced a D04 *and* a D08 HIGH, two findings that already crossed the MALICIOUS threshold by themselves — is D08's alone.
 
 ### D05 — Persistence
 
@@ -55,35 +56,38 @@ Each detector analyzes parsed class files and writes evidence to a shared `Evide
 | systemd unit paths | HIGH | Systemd service creation |
 | Startup folder | HIGH | Startup directory placement |
 
+**Correlation**: A *weak* indicator — an identifier string that never reaches the API, e.g. `schtasks.exe` with no process call in the class — is LOW (MEDIUM when the string was reconstructed) and is raised to HIGH only when the same class also executes a process (D01). A name is not a mechanism; the name plus the code that runs it is.
+
 ### D06 — Unsafe Deserialization
 
 | Signal | Severity | Description |
 |--------|----------|-------------|
 | `ObjectInputStream.readObject()` | MEDIUM | Deserialization without filtering (BleedingPipe-style RCE risk) |
+| `java.beans.XMLDecoder` | HIGH | Instantiates whatever class the document names — the BleedingPipe payload path |
 
 ### D07 — Native / JNI Loading
 
 | Signal | Severity | Description |
 |--------|----------|-------------|
-| `System.load()` | HIGH | Load native library from path |
-| `System.loadLibrary()` | HIGH | Load native library by name |
-| `.dll` / `.so` / `.dylib` refs | MEDIUM | Native library extension strings |
-| `createTempFile` + `deleteOnExit` | HIGH | JNIC DLL staging pattern |
+| `System.load()` | HIGH / MEDIUM | Load a native library from an absolute path. HIGH only when the same class also *stages* what it loads (see the next row); an absolute path on its own is how every mod loads the native it ships, so it is MEDIUM |
+| `System.loadLibrary()` | MEDIUM | Load a bundled native by name — what every LWJGL-backed mod does |
+| `.dll` / `.so` / `.dylib` refs | LOW | Native library extension strings; INFO for a known bundled library (lwjgl, jna), HIGH when the same class stages a file |
+| `createTempFile` + `deleteOnExit` | HIGH | JNIC DLL staging pattern (CRITICAL when the string was reconstructed) |
 
-**Correlation**: Escalates to CRITICAL when combined with dynamic loading (D03).
+**Correlation**: D07 at MEDIUM or worse in the same class as D03 at HIGH is a static-override trigger.
 
 ### D08 — Credential Theft
 
 | Signal | Severity | Description |
 |--------|----------|-------------|
-| `getSession()` | HIGH | Minecraft session access |
-| `getAccessToken()` | HIGH | Minecraft access token access |
-| `getUsername()` / `getUuid()` | HIGH | Player identity access |
-| `session.json` / `launcher_accounts.json` | HIGH | Account file references |
+| `getAccessToken()` | HIGH | Minecraft session *token* access (named and intermediary forms) |
+| `getSession()` / `getUsername()` / `getUuid()` | MEDIUM | Session *info* access — a scoreboard, nametag or minimap mod reads these too, and the token is what a stealer needs |
+| `session.json` / `launcher_accounts.json` | HIGH | Account file references (CRITICAL when reconstructed) |
 | Discord token paths | HIGH | Discord token file references |
-| Browser cookie / Login Data | HIGH | Browser credential database paths |
+| Browser cookie / Login Data | HIGH | Browser credential database paths — as a *path*; the bare word `Cookies` (an HTTP client's own class) is LOW |
+| `wallet.dat`, `exodus.wallet`, `Electrum/wallets`, `Ethereum/keystore`, `.ssh/`, `id_rsa` | HIGH | Crypto-wallet and SSH-key paths — the target set of the token-stealer mods seen in the wild, and nothing a Minecraft mod reads on purpose. The SSH key is matched with its separator, because a bundled crypto library names its JCA algorithms `id_rsassa_pkcs1_v1_5_with_sha3_512` |
 
-**Correlation**: Escalates to CRITICAL (static override) when combined with network I/O (D02) — almost always session token exfiltration.
+**Correlation**: D08 at HIGH or worse in the same class as D02 at MEDIUM or worse is a static-override trigger — credential access plus a network destination in one class is almost always session-token exfiltration.
 
 ### D09 — Obfuscation
 
@@ -166,7 +170,8 @@ bytecode alone.
 | Signal | Severity | Description |
 |--------|----------|-------------|
 | Mixin config (`*.mixins.json`) declaring a mixin class named after a sensitive target (Session, MinecraftClient, YggdrasilAuthenticationService, ClientConnection, packet encode/decode) | MEDIUM | Naming-convention signal — not a guarantee, but the same first-pass signal a human reviewer would use |
-| `Redirect`/`Overwrite` mixin annotation string + sensitive target name in the same class's constant pool | HIGH | These annotations fully substitute or reroute behavior at the injection point (unlike `Inject`, which runs alongside the original method) |
+| `Redirect`/`Overwrite` mixin annotation string + sensitive target name in the same class's constant pool | CRITICAL | These annotations fully substitute or reroute behavior at the injection point (unlike `Inject`, which runs alongside the original method) |
+| Sensitive target name in the class's constant pool without `Redirect`/`Overwrite` | MEDIUM | A mixin into session or auth code can intercept credentials even while running alongside the original method |
 | `FMLCorePlugin` / `FMLCorePluginContainsFMLMod` in `META-INF/MANIFEST.MF` | MEDIUM | Forge's pre-Mixin coremod mechanism — registers a ClassLoader transformer with full bytecode-rewrite access before any other mod code runs |
 
 Operates on archive entries (mixin JSON configs, the manifest) rather
@@ -194,6 +199,30 @@ signature block, not other resource files, to avoid noise from build
 tooling that can legitimately vary non-code entries between build and
 sign steps.
 
+## Behaviour Chains
+
+A chain is a named set of detectors whose co-occurrence **in one class** describes a complete
+behaviour rather than a single capability:
+
+| Chain | Links | Behaviour |
+|-------|-------|-----------|
+| `credential_exfiltration` | D08 + D02 + D09 | Reads a credential, sends it somewhere, hides the destination |
+| `reload_and_execute` | D02 + D03 | Fetches from a hidden destination and loads the result as code |
+| `hidden_download_and_exec` | D02 + D01 | Fetches from a hidden destination and hands the result to the OS |
+
+A chain matches when every link is present at MEDIUM or worse *in that class* and at least one
+link is HIGH or CRITICAL. Merely mentioning the APIs is not enough: a service loader, a plugin
+framework or a native-extraction library contains a URL, a file write and a `Class.forName` at
+INFO–MEDIUM, which is exactly what the linking rule keeps out. For the two download chains the
+discriminator is the *destination* — D02 only reaches MEDIUM for a hidden, reconstructed or
+known-exfiltration URL, while a plaintext URL string is what every update checker contains.
+
+A matched chain adds a CRITICAL `behavior_chain` finding and lifts every participating link in
+that class to at least MEDIUM, so a complete behaviour cannot be averaged away. When no chain
+matches, a *lone* link — exactly one chain-participant detector, nothing else escalated it — is
+downgraded to LOW: doing one thing on this list is not what malware looks like, doing several of
+them together is.
+
 ## Signature Rules
 
 YAML-defined rules with multi-string correlation. High-severity rules require multiple corroborating strings — no single-string high-severity rules.
@@ -210,14 +239,37 @@ YAML-defined rules with multi-string correlation. High-severity rules require mu
 | Condition | Verdict | Confidence |
 |-----------|---------|------------|
 | No evidence | CLEAN | 1.0 |
-| Static override fires | MALICIOUS | 0.7–1.0 |
-| Critical ≥ 1 or High ≥ 2 or Medium ≥ 5 | MALICIOUS | weighted |
-| High ≥ 1 or Medium ≥ 3 or Low ≥ 5 | SUSPICIOUS | weighted |
+| Static override fires | MALICIOUS | 0.84–1.0 |
+| CRITICAL ≥ 1, or HIGH from ≥ 2 detectors, or MEDIUM from ≥ 8 detectors | MALICIOUS | weighted |
+| HIGH from ≥ 1 detector, or MEDIUM from ≥ 4, or LOW from ≥ 6 | SUSPICIOUS | weighted |
 | Otherwise | CLEAN | 1.0 |
+
+Counting rules, applied to the evidence left after the chain pass:
+
+- **HIGH counts per detector**: "2 HIGHs" means two independent capabilities, not one detector
+  firing twice — `Runtime.exec` seen twenty times inside a bundle of command-line tools is still
+  one capability.
+- **D05 and D08 are target-based**, the exception to that rule: each of their findings names a
+  distinct target (a wallet file, a launch agent, a key), so every HIGH from them counts
+  separately. Reading three credential files is three victims, not one finding counted thrice.
+- **MEDIUM and LOW count distinct detectors**, for the same reason: one detector firing across
+  fifty classes of a large mod's bundled libraries is one capability, not fifty.
+- **Confidence** is a monotonic function of the weighted score (CRITICAL 1.0, HIGH 0.6, MEDIUM
+  0.2, LOW 0.05): more evidence can only raise it, never lower it, and a SUSPICIOUS verdict caps
+  at 0.9 so it can never read as certainty.
 
 ### Static Override Triggers
 
-- Credential theft (D08) at HIGH + Network I/O (D02) at HIGH in same class
+Each trigger compares each detector's *highest* severity in the class, not mere co-presence: an
+INFO network observation next to a LOW "mentions a cookie file" finding says nothing, and
+treating that as credential theft plus exfiltration made an HTTP client library MALICIOUS.
+
+- Credential theft (D08) at HIGH + network I/O (D02) at MEDIUM or worse **in the same class**
+- Native/JNI loading (D07) at MEDIUM or worse + dynamic loading (D03) at HIGH **in the same class**
 - On-chain C2 (D11) at HIGH
-- Native/JNI (D07) at HIGH + Dynamic loading (D03) at HIGH in same class
 - Any signature rule match at HIGH severity
+- A deliberately hidden reference to a dangerous API (`Runtime.exec`, `URLClassLoader`,
+  `defineClass`, `MethodHandles`, …) together with dynamic class resolution (D03) or indirect
+  invocation (D10) **in the same class** — the pattern that builds a call no direct invoke
+  reveals. A reconstructed string alone is not enough: Base64 for embedded assets plus
+  reflection for config is a legitimate and common combination
