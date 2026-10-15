@@ -33,7 +33,14 @@ def _has_path_context(haystack: str, needle: str) -> bool:
     # "Cookies.db", "AppData\\...\\Cookies") indicates a path.
     if before and before[-1] in _PATH_SEPARATORS:
         return True
-    if after and after[0] in (".", "/", "\\"):
+    if after and after[0] in (".", "/", "\\") and not after.startswith(".java"):
+        # ".java" is the one leading dot that is never a path: it is the
+        # class's own source-file name from the SourceFile attribute, which
+        # reaches this check as an ordinary constant-pool string. Every mod
+        # bundling Apache's HTTP client carries "ResponseProcessCookies.java"
+        # and "RequestAddCookies.java" — a cookie *implementation*, not a
+        # cookie database, and at two HIGH findings it was a MALICIOUS
+        # verdict for authme, neruina and Flashback in the local corpus.
         return True
     # A drive-letter prefix (e.g. "C:\\Users\\...\\Cookies") or an
     # explicit home/expansion prefix also counts.
