@@ -1403,6 +1403,21 @@
       return localStorage.getItem(TOKEN_KEY) || null;
     }
 
+    // Escape a value before it is interpolated into innerHTML. Every
+    // value rendered by the panels below came from a scanned file
+    // (file names, class names, matched strings, archive entry names)
+    // or from a rule pack — a malicious mod author chooses all of them,
+    // and an unescaped one runs script in this page, where the API
+    // token lives. Attribute handlers are not built by string
+    // concatenation for the same reason: HTML-escaping does not protect
+    // a JS string inside an attribute, because the browser decodes the
+    // attribute before the JS engine parses it.
+    function esc(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
     async function apiRequest(path, options = {}) {
       const headers = new Headers(options.headers || {});
       headers.set('Content-Type', 'application/json');
@@ -1796,7 +1811,10 @@
         if (data.parent_path) {
           const upNode = document.createElement('div');
           upNode.className = 'explorer-row';
-          upNode.innerHTML = `<span onclick="loadFolderBrowserData('${data.parent_path.replace(/\\/g, '\\\\')}')">📁 .. [Up Directory]</span>`;
+          const upSpan = document.createElement('span');
+          upSpan.textContent = '📁 .. [Up Directory]';
+          upSpan.addEventListener('click', () => loadFolderBrowserData(data.parent_path));
+          upNode.appendChild(upSpan);
           treeBox.appendChild(upNode);
         }
 
@@ -1804,11 +1822,16 @@
           const node = document.createElement('div');
           node.className = 'explorer-row';
           const icon = item.is_dir ? '📁 ' : '📄 ';
-          const clickAction = item.is_dir 
-            ? `loadFolderBrowserData('${item.path.replace(/\\/g, '\\\\')}')` 
-            : `folderBrowserState.selectCallback('${item.path.replace(/\\/g, '\\\\')}')`;
-
-          node.innerHTML = `<span onclick="${clickAction}">${icon}${item.name}</span>`;
+          const span = document.createElement('span');
+          span.textContent = `${icon}${item.name}`;
+          span.addEventListener('click', () => {
+            if (item.is_dir) {
+              loadFolderBrowserData(item.path);
+            } else if (folderBrowserState.selectCallback) {
+              folderBrowserState.selectCallback(item.path);
+            }
+          });
+          node.appendChild(span);
           treeBox.appendChild(node);
         });
       }
@@ -1854,10 +1877,10 @@
 
         item.innerHTML = `
           <div style="min-width:0; flex:1;">
-            <div style="font-weight:600; color:white; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${base}</div>
-            <div style="font-size:11px; color:var(--text-dim); font-family:var(--font-mono); margin-top:2px;">SHA: ${f.sha256.substring(0,12)}...</div>
+            <div style="font-weight:600; color:white; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(base)}</div>
+            <div style="font-size:11px; color:var(--text-dim); font-family:var(--font-mono); margin-top:2px;">SHA: ${esc(f.sha256.substring(0,12))}...</div>
           </div>
-          <span class="badge ${f.verdict.toLowerCase()}">${f.verdict}</span>
+          <span class="badge ${esc(f.verdict.toLowerCase())}">${esc(f.verdict)}</span>
         `;
         
         item.addEventListener('click', () => {
@@ -1963,12 +1986,12 @@
         
         box.innerHTML = `
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-            <span style="font-weight:600; color:var(--accent); font-family:var(--font-mono);">${match.detector_id}</span>
-            <span class="badge" style="font-size:9px; border-color:var(--danger-border); color:var(--danger); background:var(--danger-bg);">${match.severity}</span>
+            <span style="font-weight:600; color:var(--accent); font-family:var(--font-mono);">${esc(match.detector_id)}</span>
+            <span class="badge" style="font-size:9px; border-color:var(--danger-border); color:var(--danger); background:var(--danger-bg);">${esc(match.severity)}</span>
           </div>
-          <p style="font-size:12px; color:var(--text-secondary); line-height:1.4;">${match.description}</p>
-          ${match.class_name ? `<div style="font-size:10px; font-family:var(--font-mono); color:var(--text-dim); margin-top:8px; background:rgba(255,255,255,0.02); padding:4px 8px; border-radius:4px; border:1px solid var(--border-color);">CLASS: ${match.class_name}.${match.method_name}()</div>` : ''}
-          ${match.matched_value ? `<div style="font-size:11px; margin-top:8px; color:var(--text-dim); font-weight:500;">Matched value:</div><pre class="code-block" style="margin-top:4px;">${match.matched_value}</pre>` : ''}
+          <p style="font-size:12px; color:var(--text-secondary); line-height:1.4;">${esc(match.description)}</p>
+          ${match.class_name ? `<div style="font-size:10px; font-family:var(--font-mono); color:var(--text-dim); margin-top:8px; background:rgba(255,255,255,0.02); padding:4px 8px; border-radius:4px; border:1px solid var(--border-color);">CLASS: ${esc(match.class_name)}.${esc(match.method_name)}()</div>` : ''}
+          ${match.matched_value ? `<div style="font-size:11px; margin-top:8px; color:var(--text-dim); font-weight:500;">Matched value:</div><pre class="code-block" style="margin-top:4px;">${esc(match.matched_value)}</pre>` : ''}
         `;
         indBox.appendChild(box);
       });
@@ -1989,20 +2012,25 @@
           item.className = 'item-row';
           item.innerHTML = `
             <div style="min-width:0; flex:1;">
-              <div style="font-weight:600; color:white;">Audit Session: ${formatDateTime(entry.timestamp)}</div>
-              <div style="font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px;">Targets: ${entry.roots.join(', ')}</div>
+              <div style="font-weight:600; color:white;">Audit Session: ${esc(formatDateTime(entry.timestamp))}</div>
+              <div style="font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px;">Targets: ${esc(entry.roots.join(', '))}</div>
             </div>
             <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
               <div style="text-align:right; font-size:11px; font-weight:600;">
                 <span style="color:var(--danger);">${entry.summary.malicious}M</span> / 
                 <span style="color:var(--warning);">${entry.summary.suspicious}S</span>
               </div>
-              <button class="btn danger sm" style="padding:2px 6px; height:24px; display:flex; align-items:center; justify-content:center; border: 1.5px solid rgba(244,63,94,0.2);" title="Delete session record" onclick="event.stopPropagation(); deleteHistorySession('${entry.scan_id}');">
+              <button class="btn danger sm" style="padding:2px 6px; height:24px; display:flex; align-items:center; justify-content:center; border: 1.5px solid rgba(244,63,94,0.2);" title="Delete session record">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
               </button>
             </div>
           `;
-          
+
+          item.querySelector('button').addEventListener('click', (event) => {
+            event.stopPropagation();
+            deleteHistorySession(entry.scan_id);
+          });
+
           item.addEventListener('click', () => {
             document.querySelectorAll('#history-list-box .item-row').forEach(li => li.classList.remove('selected'));
             item.classList.add('selected');
@@ -2158,10 +2186,10 @@
         
         card.innerHTML = `
           <div style="min-width:0; flex:1;">
-            <div style="font-weight:600; color:white; font-family:var(--font-mono); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${file.file_path}">${file.file_path.split(/[/\\]/).pop()}</div>
+            <div style="font-weight:600; color:white; font-family:var(--font-mono); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${esc(file.file_path)}">${esc(file.file_path.split(/[/\\]/).pop())}</div>
             <div style="font-size:11px; color:var(--text-dim); margin-top:2px;">Indicators: ${file.findings.length} matches</div>
           </div>
-          <span class="badge ${file.verdict.toLowerCase()}">${file.verdict}</span>
+          <span class="badge ${esc(file.verdict.toLowerCase())}">${esc(file.verdict)}</span>
         `;
         filesBox.appendChild(card);
       });
@@ -2199,16 +2227,17 @@
         data.forEach(pack => {
           const card = document.createElement('div');
           card.className = 'card';
+          const listNode = document.createElement('div');
+          listNode.style.cssText = 'display:flex; flex-direction:column; gap:8px;';
           card.innerHTML = `
             <div class="card-title">
-              <span>Pack ID: ${pack.pack_id}</span>
+              <span>Pack ID: ${esc(pack.pack_id)}</span>
               <span style="font-size:11px; color:var(--text-dim); font-family:var(--font-mono);">${pack.rule_count} Detectors</span>
             </div>
-            <div style="display:flex; flex-direction:column; gap:8px;" id="pack-rules-${pack.pack_id.replace(/\./g,'_')}"></div>
           `;
+          card.appendChild(listNode);
           container.appendChild(card);
 
-          const listNode = document.getElementById(`pack-rules-${pack.pack_id.replace(/\./g,'_')}`);
           pack.rules.forEach(rule => {
             const row = document.createElement('div');
             row.style.border = '1px solid var(--border-color)';
@@ -2218,11 +2247,11 @@
             
             row.innerHTML = `
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                <span style="font-weight:600; font-family:var(--font-mono); font-size:12px; color:white;">${rule.id}</span>
-                <span class="badge" style="font-size:9px; border-color:var(--border-color); color:var(--text-secondary);">${rule.severity}</span>
+                <span style="font-weight:600; font-family:var(--font-mono); font-size:12px; color:white;">${esc(rule.id)}</span>
+                <span class="badge" style="font-size:9px; border-color:var(--border-color); color:var(--text-secondary);">${esc(rule.severity)}</span>
               </div>
-              <p style="font-size:12px; color:var(--text-secondary);">${rule.description}</p>
-              ${rule.family ? `<div style="font-size:10px; margin-top:4px; color:var(--accent); font-family:var(--font-mono); font-weight:500;">Family: ${rule.family}</div>` : ''}
+              <p style="font-size:12px; color:var(--text-secondary);">${esc(rule.description)}</p>
+              ${rule.family ? `<div style="font-size:10px; margin-top:4px; color:var(--accent); font-family:var(--font-mono); font-weight:500;">Family: ${esc(rule.family)}</div>` : ''}
             `;
             listNode.appendChild(row);
           });
@@ -2262,17 +2291,27 @@
           row.innerHTML = `
             <div style="min-width:0; flex:1; padding-right:15px;">
               <div style="font-weight:600; color:white; display:flex; gap:10px; align-items:center;">
-                <span>${fileBase}</span>
+                <span>${esc(fileBase)}</span>
                 <span class="badge" style="font-size:8px; border-color:var(--danger-border); color:var(--danger);">${item.restored ? 'Restored' : 'Isolated'}</span>
               </div>
-              <div style="font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px;">Original Path: ${item.original_path}</div>
-              <div style="font-size:10px; color:var(--text-dim); font-family:var(--font-mono); margin-top:2px;">SHA256: ${item.sha256}</div>
+              <div style="font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px;">Original Path: ${esc(item.original_path)}</div>
+              <div style="font-size:10px; color:var(--text-dim); font-family:var(--font-mono); margin-top:2px;">SHA256: ${esc(item.sha256)}</div>
             </div>
-            <div style="shrink-0; display:flex; gap:8px;">
-              ${!item.restored ? `<button class="btn secondary sm" onclick="restoreQuarantineFile('${item.sha256}')">Restore</button>` : ''}
-              <button class="btn danger sm" onclick="deleteQuarantinePermanently('${item.sha256}')">Erase</button>
-            </div>
+            <div class="q-actions" style="shrink-0; display:flex; gap:8px;"></div>
           `;
+          const actions = row.querySelector('.q-actions');
+          if (!item.restored) {
+            const restoreBtn = document.createElement('button');
+            restoreBtn.className = 'btn secondary sm';
+            restoreBtn.textContent = 'Restore';
+            restoreBtn.addEventListener('click', () => restoreQuarantineFile(item.sha256));
+            actions.appendChild(restoreBtn);
+          }
+          const eraseBtn = document.createElement('button');
+          eraseBtn.className = 'btn danger sm';
+          eraseBtn.textContent = 'Erase';
+          eraseBtn.addEventListener('click', () => deleteQuarantinePermanently(item.sha256));
+          actions.appendChild(eraseBtn);
           box.appendChild(row);
         });
       } else {
@@ -2369,9 +2408,10 @@
         li.style.fontSize = '12px';
         li.style.cursor = 'default';
         li.innerHTML = `
-          <span style="font-family:var(--font-mono); word-break:break-all; color:white;">${path}</span>
-          <button class="btn danger sm" style="padding:2px 8px; font-size:10px; shrink:0; margin-left:15px;" onclick="removeExcludedRoot('${path.replace(/\\/g, '\\\\')}')">Remove</button>
+          <span style="font-family:var(--font-mono); word-break:break-all; color:white;">${esc(path)}</span>
+          <button class="btn danger sm" style="padding:2px 8px; font-size:10px; shrink:0; margin-left:15px;">Remove</button>
         `;
+        li.querySelector('button').addEventListener('click', () => removeExcludedRoot(path));
         box.appendChild(li);
       });
       if (excludedRoots.length === 0) {
@@ -2404,9 +2444,10 @@
         li.style.fontSize = '12px';
         li.style.cursor = 'default';
         li.innerHTML = `
-          <span style="font-family:var(--font-mono); word-break:break-all; color:white;">${path}</span>
-          <button class="btn danger sm" style="padding:2px 8px; font-size:10px; shrink:0; margin-left:15px;" onclick="removeExclusion('${path.replace(/\\/g, '\\\\')}')">Remove</button>
+          <span style="font-family:var(--font-mono); word-break:break-all; color:white;">${esc(path)}</span>
+          <button class="btn danger sm" style="padding:2px 8px; font-size:10px; shrink:0; margin-left:15px;">Remove</button>
         `;
+        li.querySelector('button').addEventListener('click', () => removeExclusion(path));
         box.appendChild(li);
       });
       if ((systemConfig.excluded_paths || []).length === 0) {
@@ -2463,9 +2504,10 @@
         li.style.fontSize = '12px';
         li.style.cursor = 'default';
         li.innerHTML = `
-          <span style="font-family:var(--font-mono); word-break:break-all; color:white;">${hash}</span>
-          <button class="btn danger sm" style="padding:2px 8px; font-size:10px; shrink:0; margin-left:15px;" onclick="removeWhitelist('${hash}')">Remove</button>
+          <span style="font-family:var(--font-mono); word-break:break-all; color:white;">${esc(hash)}</span>
+          <button class="btn danger sm" style="padding:2px 8px; font-size:10px; shrink:0; margin-left:15px;">Remove</button>
         `;
+        li.querySelector('button').addEventListener('click', () => removeWhitelist(hash));
         box.appendChild(li);
       });
       if ((systemConfig.whitelisted_hashes || []).length === 0) {
@@ -2585,13 +2627,18 @@
 
     // ================= INITIAL ON-LOAD RUNNERS =================
     async function init() {
-      // Auto-detect token in URL query params
+      // Auto-detect the token the CLI hands over. It travels in the URL
+      // fragment (never sent to a server, so it cannot reach an access
+      // log or a Referer header); the query string is still accepted for
+      // links that predate that. Either way it is removed from the
+      // address bar immediately, so it stays out of history and
+      // bookmarks.
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
       const urlParams = new URLSearchParams(window.location.search);
-      const urlToken = urlParams.get('token');
+      const urlToken = hashParams.get('token') || urlParams.get('token');
       if (urlToken) {
         localStorage.setItem(TOKEN_KEY, urlToken);
         appendTicker('Autodetected security token credentials in URL. Saved.');
-        // Clean URL to hide token for security
         window.history.replaceState({}, document.title, window.location.pathname);
       }
 
