@@ -96,10 +96,20 @@ def test_benign_corpus_is_clean(tmp_path: Path, name: str) -> None:
 
 # Clearly malicious — must be MALICIOUS.
 MALICIOUS_FIXTURES = [
-    ("DirectExec", {"d01"}),           # Runtime.exec / ProcessBuilder
     ("ReflectiveExec", None),           # reflection-hidden exec
     ("SessionStealer", {"rule:suspicious_indicators:session_token_exfil"}),
 ]
+
+
+def test_repeated_process_exec_is_suspicious_not_malicious(tmp_path: Path) -> None:
+    """DirectExec starts a process (twice: Runtime.exec and
+    ProcessBuilder.start) and loads a library — one capability, repeated.
+    MALICIOUS is reserved for two independent capabilities, a CRITICAL,
+    or 8 distinct MEDIUM capabilities, so a process call is a SUSPICIOUS
+    lead rather than an accusation."""
+    result = _scan(tmp_path, "DirectExec.jar")
+    assert result.verdict == Verdict.SUSPICIOUS
+    assert "d01" in {f.detector_id for f in result.findings}
 
 
 @pytest.mark.parametrize("name,expected_detectors", MALICIOUS_FIXTURES)
