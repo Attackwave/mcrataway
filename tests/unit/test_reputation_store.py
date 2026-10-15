@@ -16,6 +16,7 @@ These tests verify:
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from mcrataway.constants import Verdict
@@ -23,6 +24,7 @@ from mcrataway.core.scan_engine import ScanEngine
 from mcrataway.reputation import (
     load_known_good_store,
 )
+from mcrataway.rules import signing
 from mcrataway.rules.loader import RulePackLoader
 
 
@@ -34,13 +36,32 @@ def _make_store_yaml(entries: list[dict]) -> str:
     )
 
 
-def test_load_known_good_store_parses_entries(tmp_path: Path) -> None:
-    """A valid YAML store with entries must produce a non-empty hash set."""
+@pytest.fixture
+def signing_key(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Install a fresh test keypair as the trust root, return its private key."""
+    private_b64, public_b64 = signing.generate_keypair()
+    monkeypatch.setattr(signing, "TRUSTED_PUBLIC_KEYS_B64", (public_b64,))
+    return private_b64
+
+
+def _write_signed_store(path: Path, text: str, private_key: str) -> None:
+    path.write_text(text)
+    path.with_name(path.name + ".sig").write_text(
+        signing.sign_data(text.encode(), private_key)
+    )
+
+
+def test_load_known_good_store_parses_entries(tmp_path: Path, signing_key: str) -> None:
+    """A signed YAML store with entries must produce a non-empty hash set."""
     store_file = tmp_path / "known_good.yaml"
-    store_file.write_text(_make_store_yaml([
-        {"sha256": "abc123", "name": "testmod", "version": "1.0"},
-        {"sha256": "def456", "name": "othermod", "version": "2.0"},
-    ]))
+    _write_signed_store(
+        store_file,
+        _make_store_yaml([
+            {"sha256": "abc123", "name": "testmod", "version": "1.0"},
+            {"sha256": "def456", "name": "othermod", "version": "2.0"},
+        ]),
+        signing_key,
+    )
     store = load_known_good_store(store_file)
     assert store.hashes == {"abc123", "def456"}
     assert store.is_known_good("abc123")
@@ -48,6 +69,40 @@ def test_load_known_good_store_parses_entries(tmp_path: Path) -> None:
     entry = store.get_entry("abc123")
     assert entry is not None
     assert entry.name == "testmod"
+
+
+def test_load_known_good_store_rejects_an_unsigned_store(tmp_path: Path) -> None:
+    """The store is a whitelist: a file without a valid signature must
+    whitelist nothing, or anything able to write it could switch
+    detection off for its own hashes."""
+    store_file = tmp_path / "known_good.yaml"
+    store_file.write_text(_make_store_yaml([{"sha256": "abc123"}]))
+
+    assert load_known_good_store(store_file).hashes == set()
+    assert not store_file.with_name("known_good.yaml.sig").exists()
+
+
+def test_load_known_good_store_rejects_a_tampered_store(
+    tmp_path: Path, signing_key: str
+) -> None:
+    """A hash appended to the on-disk store after it was signed must be
+    ignored: the signature is re-checked on load, not only when the store
+    is downloaded."""
+    store_file = tmp_path / "known_good.yaml"
+    _write_signed_store(store_file, _make_store_yaml([{"sha256": "abc123"}]), signing_key)
+    store_file.write_text(_make_store_yaml([{"sha256": "abc123"}, {"sha256": "malware"}]))
+
+    assert load_known_good_store(store_file).hashes == set()
+
+
+def test_shipped_known_good_store_verifies() -> None:
+    """The store committed to the repo must carry a current signature —
+    a stale .sig turns the whitelist off, since load now checks it."""
+    store = Path(__file__).resolve().parents[2] / "src" / "mcrataway" / "reputation"
+    shipped = store / "known_good.yaml"
+    assert shipped.exists(), "expected the shipped known-good store"
+    assert (store / "known_good.yaml.sig").exists()
+    assert signing.verify_file(shipped)
 
 
 def test_load_known_good_store_missing_file_returns_empty(tmp_path: Path) -> None:
@@ -58,10 +113,12 @@ def test_load_known_good_store_missing_file_returns_empty(tmp_path: Path) -> Non
     assert not store.is_known_good("anything")
 
 
-def test_load_known_good_store_invalid_yaml_returns_empty(tmp_path: Path) -> None:
+def test_load_known_good_store_invalid_yaml_returns_empty(
+    tmp_path: Path, signing_key: str
+) -> None:
     """An invalid YAML file must not crash — return an empty store."""
     store_file = tmp_path / "known_good.yaml"
-    store_file.write_text("not: valid: yaml: [[")
+    _write_signed_store(store_file, "not: valid: yaml: [[", signing_key)
     store = load_known_good_store(store_file)
     assert len(store.hashes) == 0
 
@@ -121,19 +178,23 @@ def test_reputation_does_not_skip_non_matching_hash(tmp_path: Path) -> None:
     assert result.metadata.get("whitelisted") is not True
 
 
-def test_known_good_store_entry_metadata(tmp_path: Path) -> None:
+def test_known_good_store_entry_metadata(tmp_path: Path, signing_key: str) -> None:
     """Entry metadata (mod_id, loader, source) must be preserved."""
     store_file = tmp_path / "known_good.yaml"
-    store_file.write_text(_make_store_yaml([
-        {
-            "sha256": "abc123",
-            "mod_id": "sodium",
-            "name": "Sodium",
-            "version": "0.6.0",
-            "loader": "fabric",
-            "source": "modrinth",
-        },
-    ]))
+    _write_signed_store(
+        store_file,
+        _make_store_yaml([
+            {
+                "sha256": "abc123",
+                "mod_id": "sodium",
+                "name": "Sodium",
+                "version": "0.6.0",
+                "loader": "fabric",
+                "source": "modrinth",
+            },
+        ]),
+        signing_key,
+    )
     store = load_known_good_store(store_file)
     entry = store.get_entry("abc123")
     assert entry is not None
