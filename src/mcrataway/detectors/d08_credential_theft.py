@@ -5,6 +5,7 @@ Catches:
 - Discord token paths
 - Browser cookie / login databases
 - launcher_accounts.json access
+- Crypto wallet and SSH key files
 """
 
 from mcrataway.constants import Severity
@@ -30,10 +31,14 @@ def _has_path_context(haystack: str, needle: str) -> bool:
     before = haystack[:idx]
     after = haystack[idx + len(needle):]
     # A separator before or after the needle (e.g. "/Cookies",
-    # "Cookies.db", "AppData\\...\\Cookies") indicates a path.
+    # "AppData\\...\\Cookies", "Cookies/Default") indicates a path. A
+    # trailing dot does not: Apache HttpClient's
+    # ResponseProcessCookies.java is a class name, and reading the
+    # ".java"/".kt"/".ts" source-file suffix as a file extension made
+    # that a HIGH "credential file path" finding.
     if before and before[-1] in _PATH_SEPARATORS:
         return True
-    if after and after[0] in (".", "/", "\\"):
+    if after[:1] in ("/", "\\"):
         return True
     # A drive-letter prefix (e.g. "C:\\Users\\...\\Cookies") or an
     # explicit home/expansion prefix also counts.
@@ -142,8 +147,27 @@ class D08CredentialTheft(Detector):
             "launcher_accounts.json": False,  # always suspicious
             "launcher_profiles.json": False,
             "Discord/Local State": False,
+            # Discord keeps the token in the leveldb store of its
+            # Electron profile, not in "Local State".
+            "Discord/Local Storage": False,
+            "discord/Local Storage": False,
             "discord_token": False,
             "tokens/localstorage": False,
+            # Crypto wallets and SSH keys — the target set of the
+            # "token stealer" mods seen in the wild, and nothing a
+            # Minecraft mod reads on purpose. The SSH key is matched
+            # with its separator ("/id_rsa", "\\id_rsa"): a bundled
+            # crypto library names its JCA algorithms
+            # "id_rsassa_pkcs1_v1_5_with_sha3_512", and the bare
+            # substring produced 38 HIGH findings on one legitimate mod
+            # in the corpus.
+            "wallet.dat": False,
+            "exodus.wallet": False,
+            "Electrum/wallets": False,
+            "Ethereum/keystore": False,
+            "/id_rsa": False,
+            "\\id_rsa": False,
+            ".ssh/": False,
         }
 
         evidence: list[Evidence] = []

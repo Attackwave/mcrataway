@@ -6,11 +6,26 @@ Catches:
 - Shell command strings
 """
 
+import re
+
 from mcrataway.constants import Severity
 from mcrataway.core.evidence import Evidence
 from mcrataway.detectors.base import Detector
 from mcrataway.parsers.classfile import ClassFile
 from mcrataway.parsers.instructions import resolve_invokes
+
+# A decoded string that *is* an exec API reference, not merely one that
+# contains the letters: "java.lang.RuntimeException" is a plain class
+# name and "getRuntimeMXBean" is a JMX call, neither of which says
+# anything about starting a process. Requiring a non-identifier
+# character after the name keeps the hidden-string signal while
+# dropping those.
+_TAIL = r"(?![A-Za-z0-9_$])"
+_INDICATORS = (
+    ("java.lang.Runtime", re.compile(rf"java[/.]lang[/.]Runtime{_TAIL}")),
+    ("getRuntime", re.compile(rf"getRuntime{_TAIL}")),
+    ("ProcessBuilder", re.compile(rf"ProcessBuilder{_TAIL}")),
+)
 
 
 class D01ProcessExec(Detector):
@@ -67,15 +82,9 @@ class D01ProcessExec(Detector):
         for the equivalent plain-text/bytecode match.
         """
         evidence: list[Evidence] = []
-        indicators = (
-            "java.lang.Runtime",
-            "java/lang/Runtime",
-            "getRuntime",
-            "ProcessBuilder",
-        )
         for s in strings:
-            for indicator in indicators:
-                if indicator in s:
+            for indicator, pattern in _INDICATORS:
+                if pattern.search(s):
                     evidence.append(
                         self._add_evidence(
                             class_file,
