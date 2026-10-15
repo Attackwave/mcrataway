@@ -134,6 +134,33 @@ def test_verdict_aggregator_native_override():
     assert v == Verdict.MALICIOUS
 
 
+def test_verdict_aggregator_weak_cooccurrence_is_not_malicious():
+    """Regression: credential access + network in the same class only
+    forces MALICIOUS when both are real findings. A LOW "mentions a
+    cookie file" next to an INFO network observation describes an HTTP
+    client, which is what it made MALICIOUS before."""
+    idx = EvidenceIndex()
+    idx.add(Evidence(
+        detector_id="d08",
+        severity=Severity.LOW,
+        class_name="com/example/HttpClient",
+        method_name="get",
+        offset=0,
+        description="Cookies",
+    ))
+    idx.add(Evidence(
+        detector_id="d02",
+        severity=Severity.INFO,
+        class_name="com/example/HttpClient",
+        method_name="get",
+        offset=10,
+        description="java/net/URL",
+    ))
+    agg = VerdictAggregator()
+    v, _ = agg.compute(idx)
+    assert v != Verdict.MALICIOUS
+
+
 def test_verdict_aggregator_suspicious_from_medium():
     # 4 MEDIUM findings from 4 *distinct* detectors — the distinct-
     # detector dedup means 3 MEDIUMs from the same detector (e.g. D10
