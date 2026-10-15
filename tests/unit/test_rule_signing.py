@@ -64,10 +64,11 @@ def _pack_yaml(pack_id: str, rule_id: str = "r1") -> str:
 
 
 def _write_signed_pack(path: Path, text: str, private_key_b64: str) -> None:
-    path.write_text(text)
-    path.with_name(path.name + ".sig").write_text(
-        signing.sign_data(text.encode(), private_key_b64)
-    )
+    # write_bytes: write_text translates the newlines to CRLF on Windows,
+    # and the signature covers the exact bytes it was made over.
+    data = text.encode()
+    path.write_bytes(data)
+    path.with_name(path.name + ".sig").write_text(signing.sign_data(data, private_key_b64))
 
 
 def test_load_pack_ignores_a_pack_whose_signature_no_longer_matches(

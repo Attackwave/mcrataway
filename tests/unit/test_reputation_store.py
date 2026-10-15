@@ -45,10 +45,11 @@ def signing_key(monkeypatch: pytest.MonkeyPatch) -> str:
 
 
 def _write_signed_store(path: Path, text: str, private_key: str) -> None:
-    path.write_text(text)
-    path.with_name(path.name + ".sig").write_text(
-        signing.sign_data(text.encode(), private_key)
-    )
+    # write_bytes: write_text translates the newlines to CRLF on Windows,
+    # and the signature covers the exact bytes it was made over.
+    data = text.encode()
+    path.write_bytes(data)
+    path.with_name(path.name + ".sig").write_text(signing.sign_data(data, private_key))
 
 
 def test_load_known_good_store_parses_entries(tmp_path: Path, signing_key: str) -> None:
