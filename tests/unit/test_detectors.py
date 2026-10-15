@@ -2,6 +2,7 @@
 
 import struct
 
+from mcrataway.detectors.d01_process_exec import D01ProcessExec
 from mcrataway.detectors.d03_dynamic_loading import D03DynamicLoading
 from mcrataway.detectors.d04_filesystem_jar_mod import D04FilesystemJarMod
 from mcrataway.detectors.d05_persistence import D05Persistence
@@ -31,6 +32,23 @@ def _build_class(cp_strings: list[str]) -> bytes:
     body += struct.pack(">H", 1) + method
     body += struct.pack(">H", 0)
     return b"\xCA\xFE\xBA\xBE" + struct.pack(">HH", 0, 52) + pool + body
+
+
+def test_d01_reconstructed_string_needs_a_real_exec_api_name():
+    """A decoded string only mentions process execution if it names the
+    API. "java.lang.RuntimeException" is an exception class and
+    "getRuntimeMXBean" is a JMX call — neither says anything about
+    starting a process."""
+    parsed = parse_class(_build_class(["safe"]))
+    assert parsed is not None
+    detector = D01ProcessExec()
+
+    assert detector.analyze_reconstructed_strings(
+        parsed, ["java.lang.RuntimeException", "getRuntimeMXBean"]
+    ) == []
+    assert detector.analyze_reconstructed_strings(
+        parsed, ["java.lang.Runtime.getRuntime"]
+    ) != []
 
 
 def test_d03_no_false_positive():

@@ -714,11 +714,24 @@ class ScanEngine:
         string in plain text — a benign mod has no reason to hide it —
         so this only ever adds evidence, it does not replace the plain
         constant-pool scan.
+
+        Only *decoded* strings are passed on. ``reconstruct_strings``
+        also returns every plain ``ldc`` string under the technique
+        ``ldc_string``; those reach the same detectors as ordinary
+        constant-pool strings, but here they would be rated as
+        deliberately hidden — a plain literal like Netty's
+        ``"java.lang.RuntimeException"`` became a CRITICAL "obfuscated
+        reference to process execution" and a MALICIOUS verdict on
+        mods that merely bundle such a library.
         """
         if not reconstructed:
             return []
 
-        values = [rs.value for rs in reconstructed if rs.value]
+        values = [
+            rs.value
+            for rs in reconstructed
+            if rs.value and rs.technique != "ldc_string"
+        ]
         evidence: list[Evidence] = []
         for detector in self.detectors:
             handler = getattr(detector, "analyze_reconstructed_strings", None)
