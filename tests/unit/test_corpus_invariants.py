@@ -96,20 +96,18 @@ def test_benign_corpus_is_clean(tmp_path: Path, name: str) -> None:
 
 # Clearly malicious — must be MALICIOUS.
 MALICIOUS_FIXTURES = [
+    # Starts a process twice (one capability) *and* hides a URL, which is
+    # the hidden-download-plus-execution chain: MALICIOUS for the
+    # combination, not for the repeated call.
+    ("DirectExec", {"d01", "behavior_chain"}),
     ("ReflectiveExec", None),           # reflection-hidden exec
     ("SessionStealer", {"rule:suspicious_indicators:session_token_exfil"}),
+    # Staged downloads: the shapes mod malware actually has. Any single
+    # link is ordinary (an update checker fetches, a mod writes a file, a
+    # launcher runs something); the complete behavior is the signal.
+    ("Dropper", {"d01", "d02", "behavior_chain"}),
+    ("Reloader", {"d02", "d03", "behavior_chain"}),
 ]
-
-
-def test_repeated_process_exec_is_suspicious_not_malicious(tmp_path: Path) -> None:
-    """DirectExec starts a process (twice: Runtime.exec and
-    ProcessBuilder.start) and loads a library — one capability, repeated.
-    MALICIOUS is reserved for two independent capabilities, a CRITICAL,
-    or 8 distinct MEDIUM capabilities, so a process call is a SUSPICIOUS
-    lead rather than an accusation."""
-    result = _scan(tmp_path, "DirectExec.jar")
-    assert result.verdict == Verdict.SUSPICIOUS
-    assert "d01" in {f.detector_id for f in result.findings}
 
 
 @pytest.mark.parametrize("name,expected_detectors", MALICIOUS_FIXTURES)

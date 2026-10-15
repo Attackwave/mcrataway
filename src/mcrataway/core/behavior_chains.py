@@ -11,8 +11,13 @@ behavior*:
 
 - Exfiltration: read credentials, then send them somewhere, while
   hiding the destination (D08 + D02 + D09 in the same class)
-- Reload: fetch something over the network, write it to disk, then
-  load it as code (D02 + D04 + D03)
+- Reload: fetch something from a hidden destination, then load it as
+  code (D02 + D03 in the same class). The disk write in between is not
+  a link: a plain file write is what every mod that saves a config
+  does, so it stays INFO and requiring it at MEDIUM stopped the chain
+  from matching the staged downloads it exists for.
+- Hidden download executed as a process: fetch from a hidden
+  destination, then hand it to the OS (D02 + D01 in the same class)
 - Self-propagation: enumerate the mods directory, then write into a
   JAR — the fractureiser behavior (D04 with a mods-directory path
   reference). Not implemented as a chain: D04 does not currently mark
@@ -62,10 +67,18 @@ CHAINS: tuple[BehaviorChain, ...] = (
     ),
     BehaviorChain(
         name="reload_and_execute",
-        detector_ids=("d02", "d04", "d03"),
+        detector_ids=("d02", "d03"),
         description=(
-            "Network fetch + file write + dynamic class loading in the same class: "
-            "downloads a payload, stages it on disk, then loads it as code"
+            "Network fetch from a hidden destination + dynamic class loading in the "
+            "same class: downloads a payload and loads it as code"
+        ),
+    ),
+    BehaviorChain(
+        name="hidden_download_and_exec",
+        detector_ids=("d02", "d01"),
+        description=(
+            "Network fetch from a hidden destination + process execution in the same "
+            "class: fetches a payload and hands it to the OS to run"
         ),
     ),
 )
@@ -82,6 +95,11 @@ CHAINS: tuple[BehaviorChain, ...] = (
 # and, on a third of them, was the only reason for the MALICIOUS verdict.
 _MIN_LINK_SEVERITY = Severity.MEDIUM
 _STRONG_LINK_SEVERITY = Severity.HIGH
+
+# The discriminator for the download chains is therefore the
+# *destination*: D02 only reaches MEDIUM when the URL is hidden,
+# reconstructed or a known exfiltration endpoint, while a plaintext URL
+# string is what every update checker in the corpus contains.
 
 # Detector IDs that participate in at least one chain. A lone finding
 # from one of these (no chain present, no per-detector escalation
