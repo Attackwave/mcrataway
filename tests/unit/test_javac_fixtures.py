@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from mcrataway.constants import Verdict
+from mcrataway.constants import Severity, Verdict
 from mcrataway.core.evidence import Evidence, EvidenceIndex
 from mcrataway.core.quarantine import QuarantineManager
 from mcrataway.core.scan_engine import ScanEngine
@@ -65,13 +65,91 @@ class TestRealBytecodeDetection:
     """Detectors must fire on genuine invoke* instructions, not just
     constant-pool string matches."""
 
-    def test_direct_process_exec_is_malicious(self, engine: ScanEngine, tmp_path: Path) -> None:
+    def test_process_exec_hiding_its_destination_is_malicious(
+        self, engine: ScanEngine, tmp_path: Path
+    ) -> None:
+        """DirectExec calls Runtime.exec and ProcessBuilder.start (two D01
+        HIGHs, one capability) and hides a URL in a byte array. Fetching
+        from a concealed destination and running something in the same
+        class is the staged-download behavior, so the chain carries it to
+        MALICIOUS: this fixture was written as malware. The counting rule
+        alone would rate it SUSPICIOUS, which is what the plaintext-URL
+        chain test pins as the model's limit."""
         jar = _make_jar(tmp_path, "direct.jar", {"DirectExec.class": _class_bytes("DirectExec")})
         result = engine._scan_single(jar)
         assert result.verdict == Verdict.MALICIOUS
         detector_ids = {f.detector_id for f in result.findings}
         assert "d01" in detector_ids  # Runtime.exec / ProcessBuilder
         assert "d07" in detector_ids  # System.loadLibrary
+        chains = [
+            e.context.get("chain")
+            for e in result.findings
+            if e.detector_id == "behavior_chain"
+        ]
+        assert "hidden_download_and_exec" in chains
+
+    def test_hidden_download_that_runs_the_payload_is_malicious(
+        self, engine: ScanEngine, tmp_path: Path
+    ) -> None:
+        """Staged-download malware (the Dropper fixture): a hidden URL, the
+        payload written to a temp file, then handed to the OS. Each of the
+        three is ordinary on its own — a hidden destination plus execution
+        is the complete behavior, and it has to stay MALICIOUS. Regression
+        for the chain links: requiring the plain file write at MEDIUM by
+        severity meant the chain no longer matched staged downloads."""
+        jar = _make_jar(tmp_path, "dropper.jar", {"Dropper.class": _class_bytes("Dropper")})
+        result = engine._scan_single(jar)
+        assert result.verdict == Verdict.MALICIOUS
+        chains = [
+            e.context.get("chain")
+            for e in result.findings
+            if e.detector_id == "behavior_chain"
+        ]
+        assert "hidden_download_and_exec" in chains
+
+    def test_hidden_download_that_loads_the_payload_is_malicious(
+        self, engine: ScanEngine, tmp_path: Path
+    ) -> None:
+        """The fractureiser Stage-1/2 shape (the Reloader fixture): the
+        same fetch, but the payload is loaded as code in-process instead
+        of executed as a process."""
+        jar = _make_jar(tmp_path, "reloader.jar", {"Reloader.class": _class_bytes("Reloader")})
+        result = engine._scan_single(jar)
+        assert result.verdict == Verdict.MALICIOUS
+        chains = [
+            e.context.get("chain")
+            for e in result.findings
+            if e.detector_id == "behavior_chain"
+        ]
+        assert "reload_and_execute" in chains
+
+    def test_native_load_without_staging_is_not_high(
+        self, engine: ScanEngine, tmp_path: Path
+    ) -> None:
+        """A mod loading the native library it ships — System.load with an
+        absolute path, nothing staged in the class — must not collect a HIGH
+        finding for it. That is the shape of voicechat, Distant Horizons and
+        every mod with its own native, and as a HIGH it paired with any other
+        capability into a MALICIOUS verdict."""
+        jar = _make_jar(
+            tmp_path, "nativeload.jar", {"NativeLoad.class": _class_bytes("NativeLoad")}
+        )
+        result = engine._scan_single(jar)
+        d07 = [f for f in result.findings if f.detector_id == "d07"]
+        assert d07, "D07 no longer reports the native load at all"
+        assert all(f.severity != Severity.HIGH for f in d07)
+
+    def test_native_load_after_staging_is_high(self, engine: ScanEngine, tmp_path: Path) -> None:
+        """The same call after extracting a bundled native into a temp file
+        (createTempFile + deleteOnExit) is the DLL-staging pattern D07 exists
+        for and stays a HIGH finding."""
+        jar = _make_jar(
+            tmp_path, "stagednative.jar", {"StagedNative.class": _class_bytes("StagedNative")}
+        )
+        result = engine._scan_single(jar)
+        assert any(
+            f.detector_id == "d07" and f.severity == Severity.HIGH for f in result.findings
+        ), [(f.detector_id, f.severity.name) for f in result.findings]
 
     def test_hidden_string_is_reconstructed_and_scored(
         self, engine: ScanEngine, tmp_path: Path
@@ -85,6 +163,26 @@ class TestRealBytecodeDetection:
             f for f in result.findings if f.detector_id == "string_reconstruction"
         ]
         assert any("evil.com" in f.matched_value for f in reconstructed)
+
+    def test_xml_decoder_and_lookup_define_class_are_detected(
+        self, engine: ScanEngine, tmp_path: Path
+    ) -> None:
+        """XMLDecoder.readObject() (arbitrary object graph from XML) and
+        Lookup.defineClass() (a class defined straight from a byte array)
+        are invoke-only entry points: neither is visible in the constant
+        pool alone, and both are absent from the hand-assembled
+        fixtures."""
+        jar = _make_jar(
+            tmp_path, "unsafe.jar", {"UnsafeLookup.class": _class_bytes("UnsafeLookup")}
+        )
+        result = engine._scan_single(jar)
+        found = {(f.detector_id, f.severity.name) for f in result.findings}
+        assert ("d06", "HIGH") in found
+        # D03 rates the Lookup call MEDIUM; a lone MEDIUM is downgraded
+        # to LOW by the behavior-chain pass, so assert the detector
+        # fired rather than the post-processing severity.
+        assert any(det == "d03" for det, _ in found)
+        assert result.verdict != Verdict.CLEAN
 
 
 class TestEvasionTechniques:
@@ -108,7 +206,8 @@ class TestEvasionTechniques:
             zf.writestr("fabric.mod.json", b'{"id":"innocent","name":"Innocent Mod"}')
 
         result = engine._scan_single(outer)
-        assert result.verdict == Verdict.MALICIOUS
+        assert result.verdict != Verdict.CLEAN
+        assert any(f.detector_id == "d01" for f in result.findings)
         # The path prefix must trace back into the nested archive so a
         # user can locate the actual malicious file.
         assert any(
@@ -125,7 +224,8 @@ class TestEvasionTechniques:
         file extension."""
         jar = _make_jar(tmp_path, "disguised.jar", {"assets/model.bin": _class_bytes("DirectExec")})
         result = engine._scan_single(jar)
-        assert result.verdict == Verdict.MALICIOUS
+        assert result.verdict != Verdict.CLEAN
+        assert any(f.detector_id == "d01" for f in result.findings)
 
     def test_reflection_hidden_exec_is_not_clean(
         self, engine: ScanEngine, tmp_path: Path

@@ -306,14 +306,19 @@ def test_analyze_sample_never_quarantines(tmp_path: Path, monkeypatch):
     default) was originally used internally, which moved real
     MALICIOUS-verdict fixture files into ~/.mcrataway/quarantine/ the
     first time this was run manually against tests/javac_fixtures/.
+
+    The sample has to be one the engine rates MALICIOUS on its own —
+    reflectively hidden process execution, which _static_override
+    escalates without any rule pack — otherwise a quarantine-enabled
+    engine would have nothing to move and the test would pass vacuously.
     """
     import mcrataway.constants as constants_module
     fake_home = tmp_path / "mcrataway_home"
     monkeypatch.setattr(constants_module, "CONFIG_DIR", fake_home / ".mcrataway")
     monkeypatch.setattr(constants_module, "QUARANTINE_DIR", fake_home / ".mcrataway" / "quarantine")
 
-    src = _javac_fixture("DirectExec")
-    sample_copy = tmp_path / "DirectExec.jar"
+    src = _javac_fixture("ReflectiveExec")
+    sample_copy = tmp_path / "ReflectiveExec.jar"
     sample_copy.write_bytes(src.read_bytes())
 
     analysis = analyze_sample(sample_copy)
