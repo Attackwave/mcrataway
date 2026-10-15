@@ -5,6 +5,7 @@ Catches:
 - Discord token paths
 - Browser cookie / login databases
 - launcher_accounts.json access
+- Crypto wallet and SSH key files
 """
 
 from mcrataway.constants import Severity
@@ -142,8 +143,27 @@ class D08CredentialTheft(Detector):
             "launcher_accounts.json": False,  # always suspicious
             "launcher_profiles.json": False,
             "Discord/Local State": False,
+            # Discord keeps the token in the leveldb store of its
+            # Electron profile, not in "Local State".
+            "Discord/Local Storage": False,
+            "discord/Local Storage": False,
             "discord_token": False,
             "tokens/localstorage": False,
+            # Crypto wallets and SSH keys — the target set of the
+            # "token stealer" mods seen in the wild, and nothing a
+            # Minecraft mod reads on purpose. The SSH key is matched
+            # with its separator ("/id_rsa", "\\id_rsa"): a bundled
+            # crypto library names its JCA algorithms
+            # "id_rsassa_pkcs1_v1_5_with_sha3_512", and the bare
+            # substring produced 38 HIGH findings on one legitimate mod
+            # in the corpus.
+            "wallet.dat": False,
+            "exodus.wallet": False,
+            "Electrum/wallets": False,
+            "Ethereum/keystore": False,
+            "/id_rsa": False,
+            "\\id_rsa": False,
+            ".ssh/": False,
         }
 
         evidence: list[Evidence] = []

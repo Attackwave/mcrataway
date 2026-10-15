@@ -202,3 +202,53 @@ def test_d13_ordinary_manifest_not_flagged():
     manifest = b"Manifest-Version: 1.0\nMain-Class: com.example.Mod\n"
     evs = det.analyze_archive_entry("META-INF/MANIFEST.MF", manifest)
     assert len(evs) == 0
+
+
+def test_d05_flags_linux_and_macos_persistence_paths():
+    det = D05Persistence()
+    for path in ("/etc/ld.so.preload", "~/Library/LaunchAgents/com.evil.plist"):
+        parsed = parse_class(_build_class([path]))
+        assert parsed is not None
+        evs = det.analyze_class(parsed)
+        assert any(e.severity.name == "HIGH" for e in evs), path
+
+
+def test_d08_flags_wallet_and_ssh_key_paths():
+    from mcrataway.detectors.d08_credential_theft import D08CredentialTheft
+
+    det = D08CredentialTheft()
+    for path in (
+        "AppData/Roaming/Exodus/exodus.wallet",
+        "home/steve/.ssh/id_rsa",
+        "wallets/wallet.dat",
+    ):
+        parsed = parse_class(_build_class([path]))
+        assert parsed is not None
+        evs = det.analyze_class(parsed)
+        assert any(e.severity.name == "HIGH" for e in evs), path
+
+
+def test_d08_flags_the_discord_token_store():
+    """The token lives in the Electron profile's leveldb store, not in
+    "Local State" (the path the detector listed before)."""
+    from mcrataway.detectors.d08_credential_theft import D08CredentialTheft
+
+    parsed = parse_class(_build_class(["AppData/Roaming/discord/Local Storage/leveldb"]))
+    assert parsed is not None
+    evs = D08CredentialTheft().analyze_class(parsed)
+    assert any(
+        e.severity.name == "HIGH" and "discord/Local Storage" in e.description
+        for e in evs
+    )
+
+
+def test_d08_algorithm_identifiers_are_not_credential_paths():
+    """A bundled crypto library names its JCA algorithms
+    "id_rsassa_pkcs1_v1_5_with_sha3_512". The SSH key indicator has to be
+    path-shaped, or one legitimate mod in the local corpus collects 38
+    HIGH findings for its own algorithm names."""
+    from mcrataway.detectors.d08_credential_theft import D08CredentialTheft
+
+    parsed = parse_class(_build_class(["id_rsassa_pkcs1_v1_5_with_sha3_512"]))
+    assert parsed is not None
+    assert D08CredentialTheft().analyze_class(parsed) == []
