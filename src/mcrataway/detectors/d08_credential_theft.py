@@ -30,10 +30,14 @@ def _has_path_context(haystack: str, needle: str) -> bool:
     before = haystack[:idx]
     after = haystack[idx + len(needle):]
     # A separator before or after the needle (e.g. "/Cookies",
-    # "Cookies.db", "AppData\\...\\Cookies") indicates a path.
+    # "AppData\\...\\Cookies", "Cookies/Default") indicates a path. A
+    # trailing dot does not: Apache HttpClient's
+    # ResponseProcessCookies.java is a class name, and reading the
+    # ".java"/".kt"/".ts" source-file suffix as a file extension made
+    # that a HIGH "credential file path" finding.
     if before and before[-1] in _PATH_SEPARATORS:
         return True
-    if after and after[0] in (".", "/", "\\"):
+    if after[:1] in ("/", "\\"):
         return True
     # A drive-letter prefix (e.g. "C:\\Users\\...\\Cookies") or an
     # explicit home/expansion prefix also counts.

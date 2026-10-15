@@ -46,16 +46,6 @@ _SENSITIVE_AUTH_TARGETS = (
     "MinecraftSession",
     "net/minecraft/client/util/Session",
     "net/minecraft/util/Session",
-    # Intermediary names — verified against Yarn's intermediary mapping:
-    #   class_320 = MinecraftClient (NOT here — too broad, every rendering mod targets it)
-    #   class_321 = Session (the actual session/token holder)
-    #   class_332 = YggdrasilAuthenticationService
-    #   class_45 = YggdrasilUserApiService
-    # class_3218 (ServerWorld), class_4587/4588/4597 (screens) are NOT
-    # auth-sensitive and were incorrectly listed before.
-    "class_321",  # Session (intermediary)
-    "class_332",  # YggdrasilAuthenticationService (intermediary)
-    "class_45",  # YggdrasilUserApiService (intermediary)
 )
 
 # For mixin *config* class-name matching (JSON configs, where the mixin
@@ -89,13 +79,6 @@ _SENSITIVE_NETWORK_TARGETS = (
 
 _ALL_SENSITIVE_TARGETS = _SENSITIVE_AUTH_TARGETS + _SENSITIVE_NETWORK_TARGETS
 
-# Intermediary class IDs that need word-boundary matching —
-# "class_45" must not match "class_4587", and "class_321" must not
-# match "class_3218". Built dynamically from _SENSITIVE_AUTH_TARGETS.
-_INTERMEDIARY_IDS = tuple(
-    frag for frag in _SENSITIVE_AUTH_TARGETS if frag.startswith("class_")
-)
-
 
 def _matches_sensitive_target(class_path: str) -> str | None:
     """Check whether a class path references an auth- or network-
@@ -111,20 +94,22 @@ def _matches_sensitive_target(class_path: str) -> str | None:
 
 def _matches_auth_target(class_path: str) -> str | None:
     """Check whether a class path references an auth-sensitive target
-    (Session, Yggdrasil). Uses word-boundary matching for intermediary
-    IDs to avoid class_321 matching class_3218."""
+    (Session, Yggdrasil).
+
+    Intermediary names (``class_NNN``) are deliberately absent: they
+    are assigned per Minecraft version, and guessing them is how
+    ``class_332`` came to be labelled as YggdrasilAuthenticationService.
+    authlib is not obfuscated, so a ``class_NNN`` can never be one of its
+    classes, and every class in the 510-mod local corpus that references
+    ``class_321``/``class_332``/``class_45`` is a block, an item, a screen
+    or a renderer — the four mods that referenced ``class_332`` from a
+    GUI mixin were reported CRITICAL for mixing into the screen class.
+    A Fabric mod's mixin into the remapped Session class is still caught
+    by the class-name check in the caller.
+    """
     for frag in _SENSITIVE_AUTH_TARGETS:
-        if frag in _INTERMEDIARY_IDS:
-            idx = class_path.find(frag)
-            if idx < 0:
-                continue
-            after = idx + len(frag)
-            if after < len(class_path) and class_path[after].isdigit():
-                continue
+        if frag in class_path:
             return frag
-        else:
-            if frag in class_path:
-                return frag
     return None
 
 
@@ -202,19 +187,26 @@ class D13MixinCoremod(Detector):
                 elif _matches_network_target(class_path):
                     network_targets.append(class_path)
 
-        # For non-high-impact mixins, require the class name to also
-        # suggest the target (e.g. "MixinSession"). This filters out
-        # rendering mods whose @Inject methods receive Session as a
-        # parameter but don't target Session itself.
+        # A type-descriptor reference to an auth class is ambiguous on
+        # its own: the sensitive class might appear as a method
+        # *parameter* (the mixin injects into a method that receives a
+        # Session object) rather than as the @Mixin *target* (the class
+        # being rewritten). So the mixin class's own name has to suggest
+        # the target too ("MixinSession") — with @Redirect/@Overwrite
+        # that combination is CRITICAL, without it MEDIUM.
+        #
+        # Requiring the name in both branches is what keeps a HUD or
+        # screen mixin that happens to reference the screen class
+        # (intermediary class_332, previously — and wrongly — listed as
+        # an auth target) out of the CRITICAL tier.
         class_name_lower = class_file.this_class.lower()
-        if not has_high_impact:
-            auth_targets = [
-                t for t in auth_targets
-                if any(frag.lower() in class_name_lower
-                       for frag in _SENSITIVE_CONFIG_NAME_FRAGMENTS)
-            ]
+        auth_targets = [
+            t for t in auth_targets
+            if any(frag.lower() in class_name_lower
+                   for frag in _SENSITIVE_CONFIG_NAME_FRAGMENTS)
+        ]
 
-        if not auth_targets and not network_targets and not has_high_impact:
+        if not auth_targets and not network_targets:
             return evidence
 
         # Deduplicate
@@ -249,7 +241,7 @@ class D13MixinCoremod(Detector):
                             f"a mixin into session/auth code can intercept "
                             f"credentials even without @Redirect/@Overwrite"
                         ),
-                        Severity.HIGH,
+                        Severity.MEDIUM,
                         matched_value=target,
                         context={"mixin_target": target},
                     )
