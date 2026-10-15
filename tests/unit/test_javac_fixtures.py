@@ -65,19 +65,63 @@ class TestRealBytecodeDetection:
     """Detectors must fire on genuine invoke* instructions, not just
     constant-pool string matches."""
 
-    def test_direct_process_exec_is_suspicious(self, engine: ScanEngine, tmp_path: Path) -> None:
-        """Starting a process is one capability, however often it is
-        repeated: DirectExec calls Runtime.exec and ProcessBuilder.start
-        (two D01 HIGHs) and loads a library (D07 MEDIUM), all legitimately
-        done by mods that open a file with the system tool or load a
-        native one. MALICIOUS needs two capabilities, a CRITICAL, or 8
-        distinct MEDIUMs — one capability is SUSPICIOUS."""
+    def test_process_exec_hiding_its_destination_is_malicious(
+        self, engine: ScanEngine, tmp_path: Path
+    ) -> None:
+        """DirectExec calls Runtime.exec and ProcessBuilder.start (two D01
+        HIGHs, one capability) and hides a URL in a byte array. Fetching
+        from a concealed destination and running something in the same
+        class is the staged-download behavior, so the chain carries it to
+        MALICIOUS: this fixture was written as malware. The counting rule
+        alone would rate it SUSPICIOUS, which is what the plaintext-URL
+        chain test pins as the model's limit."""
         jar = _make_jar(tmp_path, "direct.jar", {"DirectExec.class": _class_bytes("DirectExec")})
         result = engine._scan_single(jar)
-        assert result.verdict == Verdict.SUSPICIOUS
+        assert result.verdict == Verdict.MALICIOUS
         detector_ids = {f.detector_id for f in result.findings}
         assert "d01" in detector_ids  # Runtime.exec / ProcessBuilder
         assert "d07" in detector_ids  # System.loadLibrary
+        chains = [
+            e.context.get("chain")
+            for e in result.findings
+            if e.detector_id == "behavior_chain"
+        ]
+        assert "hidden_download_and_exec" in chains
+
+    def test_hidden_download_that_runs_the_payload_is_malicious(
+        self, engine: ScanEngine, tmp_path: Path
+    ) -> None:
+        """Staged-download malware (the Dropper fixture): a hidden URL, the
+        payload written to a temp file, then handed to the OS. Each of the
+        three is ordinary on its own — a hidden destination plus execution
+        is the complete behavior, and it has to stay MALICIOUS. Regression
+        for the chain links: requiring the plain file write at MEDIUM by
+        severity meant the chain no longer matched staged downloads."""
+        jar = _make_jar(tmp_path, "dropper.jar", {"Dropper.class": _class_bytes("Dropper")})
+        result = engine._scan_single(jar)
+        assert result.verdict == Verdict.MALICIOUS
+        chains = [
+            e.context.get("chain")
+            for e in result.findings
+            if e.detector_id == "behavior_chain"
+        ]
+        assert "hidden_download_and_exec" in chains
+
+    def test_hidden_download_that_loads_the_payload_is_malicious(
+        self, engine: ScanEngine, tmp_path: Path
+    ) -> None:
+        """The fractureiser Stage-1/2 shape (the Reloader fixture): the
+        same fetch, but the payload is loaded as code in-process instead
+        of executed as a process."""
+        jar = _make_jar(tmp_path, "reloader.jar", {"Reloader.class": _class_bytes("Reloader")})
+        result = engine._scan_single(jar)
+        assert result.verdict == Verdict.MALICIOUS
+        chains = [
+            e.context.get("chain")
+            for e in result.findings
+            if e.detector_id == "behavior_chain"
+        ]
+        assert "reload_and_execute" in chains
 
     def test_hidden_string_is_reconstructed_and_scored(
         self, engine: ScanEngine, tmp_path: Path
