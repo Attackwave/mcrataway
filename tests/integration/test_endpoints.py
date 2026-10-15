@@ -1,6 +1,7 @@
 """Integration tests for FastAPI endpoints."""
 
 import asyncio
+import hashlib
 import shutil
 from pathlib import Path
 
@@ -261,6 +262,47 @@ def _scratch_fixtures_dir(tmp_path: Path) -> str:
     scratch = tmp_path / "fixtures"
     shutil.copytree(_REAL_FIXTURES_DIR, scratch)
     return str(scratch)
+
+
+@pytest.mark.asyncio
+async def test_scan_quarantines_into_configured_dir(client: AsyncClient, tmp_path: Path):
+    """A scan started through the API must quarantine into the folder the
+    user configured — the scan route used to drop quarantine_dir from the
+    config it handed to the worker, so matched files silently went to the
+    default folder the UI does not list."""
+    fixtures_dir = _scratch_fixtures_dir(tmp_path)
+    custom_quarantine = tmp_path / "custom_quarantine"
+
+    resp = await client.post(
+        "/system/config",
+        json={"quarantine_dir": str(custom_quarantine), "quarantine_malicious": True},
+    )
+    assert resp.status_code == 200
+
+    job_id = await _run_scan_to_completion(client, [fixtures_dir])
+    assert job_id
+
+    manifests = list(custom_quarantine.glob("*/manifest.json"))
+    assert manifests, f"nothing quarantined into the configured dir: {custom_quarantine}"
+
+
+@pytest.mark.asyncio
+async def test_scan_honors_whitelisted_hash(client: AsyncClient, tmp_path: Path):
+    """A hash the user whitelisted through the API must be reported CLEAN
+    by later scans — the route used to drop whitelisted_hashes, so a
+    false-positive a user had already dismissed came back every scan."""
+    fixtures_dir = _scratch_fixtures_dir(tmp_path)
+    target = Path(fixtures_dir) / "session_stealer.jar"
+    sha = hashlib.sha256(target.read_bytes()).hexdigest()
+
+    resp = await client.post("/system/whitelist", json={"sha256": sha})
+    assert resp.status_code == 200
+    assert sha in resp.json()["whitelisted_hashes"]
+
+    job_id = await _run_scan_to_completion(client, [fixtures_dir])
+    report = (await client.get(f"/reports/{job_id}")).json()
+    entry = next(f for f in report["files"] if f["sha256"] == sha)
+    assert entry["verdict"] == "CLEAN"
 
 
 @pytest.mark.asyncio
