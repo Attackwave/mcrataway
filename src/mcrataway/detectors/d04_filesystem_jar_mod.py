@@ -1,9 +1,8 @@
 """D04 — Filesystem and JAR modification detector.
 
-Catches:
-- ZipOutputStream, JarFile
-- Files.walk + .jar markers
-- Directory traversal patterns
+Reports every filesystem, stream and archive API call at INFO: it is
+volume for the weighted score, not a verdict. Credential-file paths
+are D08's signal, not this detector's.
 """
 
 from mcrataway.constants import Severity
