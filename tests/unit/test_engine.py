@@ -182,6 +182,61 @@ def test_verdict_aggregator_suspicious_from_medium():
     assert v == Verdict.SUSPICIOUS
 
 
+def test_verdict_aggregator_one_detector_repeating_high_is_not_malicious():
+    # D01 reporting Runtime.exec five times across a bundle of
+    # command-line tools is ONE capability. MALICIOUS's high_count=2
+    # means two *different* detectors each rated something HIGH.
+    idx = EvidenceIndex()
+    for i in range(5):
+        idx.add(Evidence(
+            detector_id="d01",
+            severity=Severity.HIGH,
+            class_name=f"com/test/C{i}",
+            method_name="exec",
+            offset=i * 10,
+            description="Runtime.exec() call detected",
+        ))
+    agg = VerdictAggregator()
+    v, c = agg.compute(idx)
+    assert v == Verdict.SUSPICIOUS
+    assert c <= 0.9
+
+
+def test_verdict_aggregator_two_distinct_high_detectors_is_malicious():
+    idx = EvidenceIndex()
+    for i, det_id in enumerate(("d01", "d07")):
+        idx.add(Evidence(
+            detector_id=det_id,
+            severity=Severity.HIGH,
+            class_name=f"com/test/C{i}",
+            method_name="m",
+            offset=i * 10,
+            description=f"evidence {i}",
+        ))
+    agg = VerdictAggregator()
+    v, c = agg.compute(idx)
+    assert v == Verdict.MALICIOUS
+
+
+def test_verdict_aggregator_target_based_repeats_count_separately():
+    # D08 is the exception: each HIGH names a different victim (a wallet
+    # file, a cookie database), so reading two of them is the attack
+    # getting worse, not the same finding counted twice.
+    idx = EvidenceIndex()
+    for i in range(2):
+        idx.add(Evidence(
+            detector_id="d08",
+            severity=Severity.HIGH,
+            class_name=f"com/test/C{i}",
+            method_name="steal",
+            offset=i * 10,
+            description=f"credential path {i}",
+        ))
+    agg = VerdictAggregator()
+    v, c = agg.compute(idx)
+    assert v == Verdict.MALICIOUS
+
+
 def test_evidence_index_cooccurring():
     idx = EvidenceIndex()
     idx.add(Evidence(
