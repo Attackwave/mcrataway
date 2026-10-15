@@ -258,14 +258,18 @@ def serve(host: str, port: int, hot_reload: bool, skip_browser: bool) -> None:
     token = ensure_token()
 
     url = f"http://{host}:{port}"
-    url_with_token = f"{url}/?token={token}"
     rich.print(f"[bold green]mcrataway[/bold green] starting at {url}")
     rich.print(
         f"[dim]Auth token (send as X-Mcrataway-Token header):[/dim] {token}"
     )
-    rich.print(f"[dim]Web GUI Access URL:[/dim] [underline]{url_with_token}[/underline]")
     if not skip_browser:
-        webbrowser.open(url_with_token)
+        # Hand the token over in the URL *fragment*: a fragment is never
+        # transmitted, so unlike a query string it cannot show up in the
+        # uvicorn access log or in a Referer header. The dashboard stores
+        # it and strips it from the address bar on load. Pasting the
+        # token above into Settings works too (e.g. for a remote browser,
+        # which can open http://{host}:{port}/#token=<token> itself).
+        webbrowser.open(f"{url}/#token={token}")
 
     from mcrataway.server.app import create_app
 
