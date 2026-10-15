@@ -235,6 +235,25 @@ def test_restore_refuses_a_payload_that_no_longer_matches_its_hash(
     assert any(entry["event_type"] == "restore_refused" for entry in read_audit_log())
 
 
+def test_restore_ignores_the_quarantined_path_the_manifest_names(
+    tmp_path: Path, qm: QuarantineManager
+) -> None:
+    """The payload is the file in the entry that hashes to the entry's
+    name; the manifest's record of where it lies is not what decides
+    which bytes end up back on the filesystem."""
+    mod = tmp_path / "evil.jar"
+    mod.write_bytes(b"malware")
+    sha = _quarantine(qm, mod)
+    manifest_path = qm.quarantine_dir / sha / "manifest.json"
+    data = json.loads(manifest_path.read_text())
+    data["quarantined_path"] = str(tmp_path / "elsewhere.jar")
+    manifest_path.write_text(json.dumps(data))
+
+    assert qm.restore(sha) is True
+    assert mod.read_bytes() == b"malware"
+    assert not (qm.quarantine_dir / sha).exists()
+
+
 def test_restore_refuses_a_manifest_that_names_another_hash(
     tmp_path: Path, qm: QuarantineManager
 ) -> None:
