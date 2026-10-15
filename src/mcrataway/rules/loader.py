@@ -24,8 +24,13 @@ import yaml
 
 from mcrataway.constants import Severity
 from mcrataway.parsers.archive import ArchiveEntry, is_java_class
+from mcrataway.rules.signing import verify_file
 
 logger = logging.getLogger(__name__)
+
+# The packs shipped inside the package, as opposed to the ones a user
+# authored or the updater downloaded into CONFIG_DIR/rules.
+_BUILTIN_PACKS_DIR = Path(__file__).parent / "packs"
 
 # The only condition forms a rule is allowed to declare. Anything else
 # (a typo, an unsupported form like "count(net) >= 2") is rejected at
@@ -249,9 +254,16 @@ class RuleMatchState:
 class RulePack:
     """A loaded set of rules from a YAML file."""
 
-    def __init__(self, pack_id: str, rules: list[RuleDefinition]) -> None:
+    def __init__(
+        self, pack_id: str, rules: list[RuleDefinition], builtin: bool = False
+    ) -> None:
         self.pack_id = pack_id
         self.rules = rules
+        # Shipped with the scanner rather than authored by the user: only
+        # a signature-verified pack may replace one, so a file dropped
+        # into ~/.mcrataway/rules/ cannot delete the built-in detections
+        # by reusing their pack_id.
+        self.builtin = builtin
 
     def new_match_state(self) -> RuleMatchState:
         """Create a fresh streaming match state for one archive scan."""
@@ -359,8 +371,7 @@ class RulePackLoader:
 
     def load_defaults(self) -> None:
         """Load the built-in and user-downloaded rule packs."""
-        packs_dir = Path(__file__).parent / "packs"
-        for yaml_file in sorted(packs_dir.glob("*.yaml")):
+        for yaml_file in sorted(_BUILTIN_PACKS_DIR.glob("*.yaml")):
             self.load_pack(yaml_file)
 
         from mcrataway.constants import CONFIG_DIR
@@ -370,7 +381,28 @@ class RulePackLoader:
                 self.load_pack(yaml_file)
 
     def load_pack(self, path: Path) -> None:
-        """Load a single rule pack from a YAML file."""
+        """Load a single rule pack from a YAML file.
+
+        A pack that carries a detached ``.sig`` (written by
+        :class:`~mcrataway.rules.updater.RuleUpdater` for every download)
+        is only loaded while that signature still verifies against the
+        trust root: verifying at download time proves who published the
+        file, not that the copy on disk is still that file. Packs without
+        a signature are locally authored and trusted implicitly (see
+        docs/RULES.md), but may not replace a built-in pack.
+        """
+        sig_path = path.with_name(path.name + ".sig")
+        verified = False
+        if sig_path.exists():
+            if not verify_file(path):
+                logger.warning(
+                    "Ignoring rule pack %s: its .sig does not verify against the "
+                    "trust root, so the file on disk is not the one that was signed.",
+                    path,
+                )
+                return
+            verified = True
+
         try:
             with open(path) as f:
                 data = yaml.safe_load(f)
@@ -409,9 +441,18 @@ class RulePackLoader:
             )
 
         if rules:
-            new_pack = RulePack(pack_id, rules)
+            new_pack = RulePack(pack_id, rules, builtin=path.parent == _BUILTIN_PACKS_DIR)
             for idx, existing in enumerate(self.packs):
                 if existing.pack_id == pack_id:
+                    if existing.builtin and not verified:
+                        logger.warning(
+                            "Ignoring rule pack %s: it reuses the built-in pack_id "
+                            "%r without a valid signature, which would remove the "
+                            "built-in detections.",
+                            path,
+                            pack_id,
+                        )
+                        return
                     self.packs[idx] = new_pack
                     return
             self.packs.append(new_pack)

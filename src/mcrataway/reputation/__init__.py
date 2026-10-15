@@ -15,7 +15,8 @@ trust root as rule packs, and stored at
 ``~/.mcrataway/reputation/known_good.yaml``. A signed-but-stale store
 is still usable: hashes don't expire, and a compromised download
 channel cannot add fraudulent "clean" hashes for malware without a
-valid signature.
+valid signature. The signature is re-checked on every load, since the
+file on disk is what a scan actually trusts.
 
 The store is opt-in (default off) to respect users who don't want
 network fetches; when enabled, it merges with the user's manual
@@ -31,7 +32,7 @@ from pathlib import Path
 import yaml
 
 from mcrataway.constants import CONFIG_DIR
-from mcrataway.rules.signing import verify_signature
+from mcrataway.rules.signing import verify_file, verify_signature
 
 logger = logging.getLogger(__name__)
 
@@ -85,12 +86,26 @@ class KnownGoodStore:
 def load_known_good_store(path: Path | None = None) -> KnownGoodStore:
     """Load the known-good hash store from disk.
 
-    Returns an empty store if the file doesn't exist or is invalid —
-    a missing store means nothing is whitelisted, which is the safe
-    default.
+    Returns an empty store if the file doesn't exist, is invalid, or does
+    not carry a valid signature — a missing store means nothing is
+    whitelisted, which is the safe default.
+
+    The signature is checked here, not only when the store is
+    downloaded: the store is a whitelist, so anything that can write the
+    file could otherwise add its own hashes and switch detection off for
+    them. For a hand-maintained list use ``config.whitelisted_hashes``.
     """
     path = path or KNOWN_GOOD_FILE
     if not path.exists():
+        return KnownGoodStore()
+
+    if not verify_file(path):
+        logger.warning(
+            "Ignoring known-good store at %s: no signature next to it, or one "
+            "that does not verify against the trust root — nothing from it is "
+            "whitelisted (use config.whitelisted_hashes for a manual list).",
+            path,
+        )
         return KnownGoodStore()
 
     try:
