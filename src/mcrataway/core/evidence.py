@@ -63,6 +63,26 @@ class EvidenceIndex:
             return Severity.INFO
         return max(e.severity for e in evs)
 
+    def class_strengths(self) -> dict[str, dict[str, Severity]]:
+        """Highest severity per detector, per class.
+
+        The class-scoped correlations (behavior chains, the verdict
+        override) ask whether two capabilities are both present *and*
+        real. A detector that fired only at INFO/LOW in a class is a
+        hint that the capability might be there — D04's plain
+        "touches a file" finding is INFO by design — not the capability
+        itself, so those correlations use this rather than mere
+        co-presence.
+        """
+        strengths: dict[str, dict[str, Severity]] = {}
+        for class_name, evs in self._class_evidence.items():
+            per_detector: dict[str, Severity] = {}
+            for ev in evs:
+                if ev.severity > per_detector.get(ev.detector_id, Severity.INFO):
+                    per_detector[ev.detector_id] = ev.severity
+            strengths[class_name] = per_detector
+        return strengths
+
     def has_cooccurring(
         self, class_name: str, detector_id_a: str, detector_id_b: str
     ) -> bool:

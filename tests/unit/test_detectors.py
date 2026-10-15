@@ -2,11 +2,14 @@
 
 import struct
 
+from mcrataway.constants import Severity
+from mcrataway.detectors.d01_process_exec import D01ProcessExec
 from mcrataway.detectors.d03_dynamic_loading import D03DynamicLoading
 from mcrataway.detectors.d04_filesystem_jar_mod import D04FilesystemJarMod
 from mcrataway.detectors.d05_persistence import D05Persistence
 from mcrataway.detectors.d06_deserialization import D06Deserialization
 from mcrataway.detectors.d07_native_jni import D07NativeJni
+from mcrataway.detectors.d08_credential_theft import D08CredentialTheft
 from mcrataway.detectors.d09_obfuscation import D09Obfuscation
 from mcrataway.detectors.d10_reflection_indirect import D10ReflectionIndirect
 from mcrataway.detectors.d12_resourcepack_exploit import D12ResourcepackExploit
@@ -31,6 +34,23 @@ def _build_class(cp_strings: list[str]) -> bytes:
     body += struct.pack(">H", 1) + method
     body += struct.pack(">H", 0)
     return b"\xCA\xFE\xBA\xBE" + struct.pack(">HH", 0, 52) + pool + body
+
+
+def test_d01_reconstructed_string_needs_a_real_exec_api_name():
+    """A decoded string only mentions process execution if it names the
+    API. "java.lang.RuntimeException" is an exception class and
+    "getRuntimeMXBean" is a JMX call — neither says anything about
+    starting a process."""
+    parsed = parse_class(_build_class(["safe"]))
+    assert parsed is not None
+    detector = D01ProcessExec()
+
+    assert detector.analyze_reconstructed_strings(
+        parsed, ["java.lang.RuntimeException", "getRuntimeMXBean"]
+    ) == []
+    assert detector.analyze_reconstructed_strings(
+        parsed, ["java.lang.Runtime.getRuntime"]
+    ) != []
 
 
 def test_d03_no_false_positive():
@@ -168,6 +188,27 @@ def test_d13_mixin_targeting_session_flagged():
     assert any("YggdrasilAuthentication" in e.description for e in evs)
 
 
+def test_d08_java_class_name_is_not_a_credential_path():
+    """Regression: "ResponseProcessCookies.java" is an Apache HttpClient
+    class name in a bundled library. The path-context check read the
+    ".java" suffix as a file extension and rated it HIGH — two such
+    matches made a legitimate mod MALICIOUS."""
+    data = _build_class(["ResponseProcessCookies.java"])
+    parsed = parse_class(data)
+    assert parsed is not None
+    evs = D08CredentialTheft().analyze_class(parsed)
+    assert evs, "the name is still recorded for forensic completeness"
+    assert all(e.severity == Severity.LOW for e in evs)
+
+
+def test_d08_credential_path_is_still_high():
+    data = _build_class(["AppData/Roaming/Mozilla/Firefox/Profiles/x/Cookies"])
+    parsed = parse_class(data)
+    assert parsed is not None
+    evs = D08CredentialTheft().analyze_class(parsed)
+    assert any(e.severity == Severity.HIGH for e in evs)
+
+
 def test_d13_mixin_targeting_benign_class_not_flagged():
     import json
 
@@ -209,3 +250,53 @@ def test_d13_ordinary_manifest_not_flagged():
     manifest = b"Manifest-Version: 1.0\nMain-Class: com.example.Mod\n"
     evs = det.analyze_archive_entry("META-INF/MANIFEST.MF", manifest)
     assert len(evs) == 0
+
+
+def test_d05_flags_linux_and_macos_persistence_paths():
+    det = D05Persistence()
+    for path in ("/etc/ld.so.preload", "~/Library/LaunchAgents/com.evil.plist"):
+        parsed = parse_class(_build_class([path]))
+        assert parsed is not None
+        evs = det.analyze_class(parsed)
+        assert any(e.severity.name == "HIGH" for e in evs), path
+
+
+def test_d08_flags_wallet_and_ssh_key_paths():
+    from mcrataway.detectors.d08_credential_theft import D08CredentialTheft
+
+    det = D08CredentialTheft()
+    for path in (
+        "AppData/Roaming/Exodus/exodus.wallet",
+        "home/steve/.ssh/id_rsa",
+        "wallets/wallet.dat",
+    ):
+        parsed = parse_class(_build_class([path]))
+        assert parsed is not None
+        evs = det.analyze_class(parsed)
+        assert any(e.severity.name == "HIGH" for e in evs), path
+
+
+def test_d08_flags_the_discord_token_store():
+    """The token lives in the Electron profile's leveldb store, not in
+    "Local State" (the path the detector listed before)."""
+    from mcrataway.detectors.d08_credential_theft import D08CredentialTheft
+
+    parsed = parse_class(_build_class(["AppData/Roaming/discord/Local Storage/leveldb"]))
+    assert parsed is not None
+    evs = D08CredentialTheft().analyze_class(parsed)
+    assert any(
+        e.severity.name == "HIGH" and "discord/Local Storage" in e.description
+        for e in evs
+    )
+
+
+def test_d08_algorithm_identifiers_are_not_credential_paths():
+    """A bundled crypto library names its JCA algorithms
+    "id_rsassa_pkcs1_v1_5_with_sha3_512". The SSH key indicator has to be
+    path-shaped, or one legitimate mod in the local corpus collects 38
+    HIGH findings for its own algorithm names."""
+    from mcrataway.detectors.d08_credential_theft import D08CredentialTheft
+
+    parsed = parse_class(_build_class(["id_rsassa_pkcs1_v1_5_with_sha3_512"]))
+    assert parsed is not None
+    assert D08CredentialTheft().analyze_class(parsed) == []

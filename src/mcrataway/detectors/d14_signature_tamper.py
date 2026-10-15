@@ -32,6 +32,11 @@ from mcrataway.parsers.classfile import ClassFile
 
 _SF_NAME_LINE = re.compile(r"^Name:\s*(.+)$", re.MULTILINE)
 
+# More unsigned classes than a payload injection would add: at that
+# point the signature is stale rather than tampered with — see the
+# reasoning in analyze_signed_archive.
+_MAX_INJECTED_CLASSES = 5
+
 
 def _parse_sf_entry_names(sf_text: str) -> set[str]:
     """Extract the set of entry names listed in a META-INF/*.SF file.
@@ -81,23 +86,49 @@ class D14SignatureTamper(Detector):
             if not signed_names:
                 continue
 
-            unsigned_classes = {
-                name
-                for name in entry_names
-                if name.endswith(".class") and name not in signed_names
-            }
-            for class_name in sorted(unsigned_classes):
+            class_entries = [name for name in entry_names if name.endswith(".class")]
+            unsigned_classes = sorted(
+                name for name in class_entries if name not in signed_names
+            )
+            if not unsigned_classes:
+                continue
+
+            # How many classes are missing decides how to read it. The
+            # pattern this detector exists for — a payload injected into
+            # an otherwise intact signed mod — adds one class, or a
+            # handful. A signature that leaves out dozens is not that:
+            # the JAR was repackaged after signing (a build step such as
+            # shading or remapping that runs after jarsigner), so the
+            # finding is a lead, not proof. In the local 510-mod corpus
+            # this separates single-class additions from author-signed
+            # mods with a stale .SF, which had 57 of 106, 82 of 230 and
+            # 99 of ~250 classes absent and were reported MALICIOUS for
+            # it.
+            if len(unsigned_classes) <= _MAX_INJECTED_CLASSES:
+                severity = Severity.HIGH
+                note = (
+                    "added after the JAR was signed, possibly indicating a "
+                    "legitimate mod was trojanized post-signing"
+                )
+            else:
+                severity = Severity.MEDIUM
+                note = (
+                    f"{len(unsigned_classes)} of {len(class_entries)} classes are "
+                    f"absent from it — the JAR was repackaged after it was signed, "
+                    f"so the signature covers only part of the archive"
+                )
+
+            for class_name in unsigned_classes:
                 evidence.append(
                     Evidence(
                         detector_id=self.detector_id,
-                        severity=Severity.HIGH,
+                        severity=severity,
                         class_name=class_name,
                         method_name="",
                         offset=0,
                         description=(
                             f"Class file present in signed archive but absent from "
-                            f"{sf_name} — added after the JAR was signed, possibly "
-                            f"indicating a legitimate mod was trojanized post-signing"
+                            f"{sf_name} — {note}"
                         ),
                         matched_value=class_name,
                         context={"signature_file": sf_name},

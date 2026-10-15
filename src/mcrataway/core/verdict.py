@@ -15,6 +15,15 @@ _SEVERITY_WEIGHTS = {
     Severity.LOW: 0.05,
 }
 
+# Detectors whose findings each name a distinct target — a wallet file,
+# a launch agent, a key — rather than repeating one capability. Reading
+# three credential files is three victims, not one finding counted three
+# times, so for these detectors every HIGH counts separately toward the
+# thresholds below. Every other detector counts once, however often it
+# fires: D01 seeing Runtime.exec twenty times inside a bundle of
+# command-line tools is still one capability.
+_TARGET_BASED_DETECTORS = frozenset({"d05", "d08"})
+
 # Saturation constant for the confidence curve: 1 - exp(-score / _K).
 # Chosen so a single CRITICAL (score 1.0) already yields a high (~0.86)
 # confidence, matching the previous scheme's behavior for the common
@@ -50,6 +59,10 @@ class VerdictAggregator:
         # reserving MALICIOUS for either a strong signal (CRITICAL/
         # HIGH/chain) or a genuinely broad capability spread (8+
         # MEDIUMs from *distinct* detectors — see the dedup below).
+        # HIGH counts per detector for the same reason: "2 HIGHs" is
+        # meant to be two independent strong signals, not one detector
+        # firing twice — except for the target-based detectors, where
+        # each finding is its own victim (see _TARGET_BASED_DETECTORS).
         self._thresholds = {
             Verdict.MALICIOUS: {
                 "critical_count": 1,
@@ -94,6 +107,19 @@ class VerdictAggregator:
             e.detector_id for e in index.evidence if e.severity == Severity.LOW
         }
 
+        # HIGH for the thresholds counts per detector (see the class
+        # docstring), while the score below keeps the raw volume: how
+        # often a capability appears still says how much of the mod is
+        # built out of it, it just does not create a second capability.
+        high_by_detector: dict[str, int] = {}
+        for e in index.evidence:
+            if e.severity == Severity.HIGH:
+                high_by_detector[e.detector_id] = high_by_detector.get(e.detector_id, 0) + 1
+        high_for_threshold = sum(
+            count if detector_id in _TARGET_BASED_DETECTORS else 1
+            for detector_id, count in high_by_detector.items()
+        )
+
         score = (
             critical * _SEVERITY_WEIGHTS[Severity.CRITICAL]
             + high * _SEVERITY_WEIGHTS[Severity.HIGH]
@@ -118,14 +144,14 @@ class VerdictAggregator:
         low_for_threshold = len(distinct_low_detectors)
         if (
             critical >= self._thresholds[Verdict.MALICIOUS]["critical_count"]
-            or high >= self._thresholds[Verdict.MALICIOUS]["high_count"]
+            or high_for_threshold >= self._thresholds[Verdict.MALICIOUS]["high_count"]
             or medium_for_threshold >= self._thresholds[Verdict.MALICIOUS]["medium_count"]
         ):
             confidence = _confidence_from_score(score)
             return Verdict.MALICIOUS, confidence
 
         if (
-            high >= self._thresholds[Verdict.SUSPICIOUS]["high_count"]
+            high_for_threshold >= self._thresholds[Verdict.SUSPICIOUS]["high_count"]
             or medium_for_threshold >= self._thresholds[Verdict.SUSPICIOUS]["medium_count"]
             or low_for_threshold >= self._thresholds[Verdict.SUSPICIOUS]["low_count"]
         ):
@@ -138,10 +164,21 @@ class VerdictAggregator:
         """Force MALICIOUS if high-confidence static signals are present.
 
         This prevents heuristic undercounting of obvious malware.
+
+        The class-scoped combinations below compare each detector's
+        *highest* severity in the class, not mere co-presence: an INFO
+        network observation next to a LOW "mentions a cookie file"
+        finding says nothing, and treating it as credential theft plus
+        exfiltration made an HTTP client library MALICIOUS.
         """
+        strengths = index.class_strengths()
+
         # Credential theft + network in the same class = almost always malware
-        for class_name in index._class_evidence:
-            if index.has_cooccurring(class_name, "d08", "d02"):
+        for per_detector in strengths.values():
+            if (
+                per_detector.get("d08", Severity.INFO) >= Severity.HIGH
+                and per_detector.get("d02", Severity.INFO) >= Severity.MEDIUM
+            ):
                 return True
 
         # On-chain C2 is always malicious
@@ -149,8 +186,11 @@ class VerdictAggregator:
             return True
 
         # Native/JNI + dynamic loading in the same class = native-DLL staging
-        for class_name in index._class_evidence:
-            if index.has_cooccurring(class_name, "d07", "d03"):
+        for per_detector in strengths.values():
+            if (
+                per_detector.get("d07", Severity.INFO) >= Severity.MEDIUM
+                and per_detector.get("d03", Severity.INFO) >= Severity.HIGH
+            ):
                 return True
 
         # Any high-severity signature rule match
