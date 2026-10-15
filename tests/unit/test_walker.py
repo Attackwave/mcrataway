@@ -21,7 +21,8 @@ def _touch(root: Path, *rels: str) -> None:
 
 def _walk(root: Path) -> set[str]:
     walker = FileWalker(restrict_to_scan_subdirs=True)
-    return {str(p.relative_to(root)) for p in walker.walk(root)}
+    # as_posix(): the expectation describes the layout, not the separator.
+    return {p.relative_to(root).as_posix() for p in walker.walk(root)}
 
 
 def test_restriction_is_scoped_to_the_root_not_to_its_ancestors(tmp_path: Path) -> None:
