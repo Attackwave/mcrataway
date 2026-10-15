@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from mcrataway.constants import Severity
 from mcrataway.core.quarantine import QuarantineManager
 from mcrataway.core.scan_engine import ScanEngine
 from mcrataway.detectors.d14_signature_tamper import D14SignatureTamper
@@ -80,6 +81,24 @@ class TestAnalyzeSignedArchive:
         det = D14SignatureTamper()
         evs = det.analyze_signed_archive({"Foo.class", "Bar.class"}, {})
         assert evs == []
+
+    def test_stale_signature_is_a_medium_lead(self) -> None:
+        """A signature that covers only part of the archive is a lead,
+        not proof of injection: several popular, legitimate mods in the
+        local corpus (ModernUI, betterstats, tcdcommons) had 57 to 99 of
+        their classes absent from their own .SF and were MALICIOUS from
+        the per-class HIGH findings alone."""
+        det = D14SignatureTamper()
+        entries = {f"com/example/C{i}.class" for i in range(20)} | {"META-INF/ALIAS.SF"}
+        sf = {
+            "META-INF/ALIAS.SF": (
+                "Signature-Version: 1.0\n\nName: com/example/C0.class\nSHA-256: abc\n"
+            )
+        }
+        evs = det.analyze_signed_archive(entries, sf)
+        assert len(evs) == 19
+        assert all(e.severity == Severity.MEDIUM for e in evs)
+        assert "repackaged after it was signed" in evs[0].description
 
 
 class TestAnalyzeManifestClassPath:

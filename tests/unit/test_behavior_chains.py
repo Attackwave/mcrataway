@@ -3,9 +3,15 @@
 See the module docstring for the rationale: a single capability
 detector firing (e.g. D04 filesystem access alone) is common in
 entirely benign mods and should not weigh heavily on its own; a
-*complete* multi-step behavior (e.g. D07 native load + D04 filesystem
-write in the same class — staging and loading an unpacked native
-payload) is a much stronger signal and should escalate.
+*complete* multi-step behavior (e.g. D02 network fetch + D04 file
+write + D03 dynamic loading in the same class — downloading a payload,
+staging it, then loading it as code) is a much stronger signal and
+should escalate.
+
+The links also have to be real findings. The same three APIs appear,
+harmlessly, in every service loader and native-extraction library
+(kotlinx's FastServiceLoader, javacpp's Loader, JNA's Native), which is
+what the severity gates below are for.
 """
 
 from mcrataway.constants import Severity, Verdict
@@ -14,31 +20,65 @@ from mcrataway.core.evidence import Evidence, EvidenceIndex
 from mcrataway.core.verdict import VerdictAggregator
 
 
+def _loader_class(idx: EvidenceIndex, **severities: Severity) -> None:
+    """Add D02/D03/D04 findings for one class, with the given
+    severities (defaults describe the full, real behavior)."""
+    for detector_id, severity in (
+        ("d02", severities.get("d02", Severity.HIGH)),
+        ("d03", severities.get("d03", Severity.MEDIUM)),
+        ("d04", severities.get("d04", Severity.MEDIUM)),
+    ):
+        idx.add(Evidence(detector_id, severity, "com/evil/Loader", "", 0, f"{detector_id} finding"))
+
+
 def test_complete_chain_escalates_to_critical() -> None:
     idx = EvidenceIndex()
-    idx.add(Evidence("d07", Severity.HIGH, "com/evil/Loader", "", 0, "System.loadLibrary"))
-    idx.add(Evidence("d04", Severity.INFO, "com/evil/Loader", "", 0, "FileOutputStream"))
+    _loader_class(idx)
     evaluate_chains(idx)
 
     chain_evidence = [e for e in idx.evidence if e.detector_id == "behavior_chain"]
     assert len(chain_evidence) == 1
     assert chain_evidence[0].severity == Severity.CRITICAL
-    assert chain_evidence[0].context["chain"] == "native_payload_staging"
+    assert chain_evidence[0].context["chain"] == "reload_and_execute"
 
 
 def test_complete_chain_raises_weak_links_to_medium() -> None:
-    """A chain link that a detector rated INFO/LOW must be raised to at
-    least MEDIUM once it is confirmed to be part of a complete chain —
-    otherwise VerdictAggregator's thresholds barely notice it despite
-    a demonstrated complete behavior."""
+    """A chain link that a detector rated INFO/LOW elsewhere in the same
+    class must be raised to at least MEDIUM once the chain is
+    confirmed — otherwise VerdictAggregator's thresholds barely notice
+    it despite a demonstrated complete behavior."""
     idx = EvidenceIndex()
-    idx.add(Evidence("d07", Severity.HIGH, "com/evil/Loader", "", 0, "System.loadLibrary"))
-    idx.add(Evidence("d04", Severity.INFO, "com/evil/Loader", "", 0, "FileOutputStream"))
+    _loader_class(idx, d03=Severity.HIGH)
+    idx.add(Evidence("d04", Severity.INFO, "com/evil/Loader", "", 8, "FileOutputStream"))
     evaluate_chains(idx)
 
     d04_evidence = [e for e in idx.evidence if e.detector_id == "d04"]
-    assert len(d04_evidence) == 1
-    assert d04_evidence[0].severity >= Severity.MEDIUM
+    assert len(d04_evidence) == 2
+    assert all(e.severity >= Severity.MEDIUM for e in d04_evidence)
+
+
+def test_chain_needs_meaningful_links() -> None:
+    """Regression: a file write that its own detector rated INFO, next
+    to a Class.forName and a URL call, is a service loader — not a
+    download-and-execute chain. This combination put a CRITICAL
+    "complete behavior chain" finding on kotlinx's FastServiceLoader,
+    flatlaf's UIDefaultsLoader and javacpp's Loader."""
+    idx = EvidenceIndex()
+    _loader_class(idx, d03=Severity.MEDIUM, d04=Severity.INFO)
+    evaluate_chains(idx)
+
+    assert not [e for e in idx.evidence if e.detector_id == "behavior_chain"]
+
+
+def test_chain_needs_one_strong_link() -> None:
+    """All three links at MEDIUM is a mod doing three ordinary things;
+    no single one of them is specific enough to carry a complete
+    behavior on its own."""
+    idx = EvidenceIndex()
+    _loader_class(idx, d02=Severity.MEDIUM, d03=Severity.MEDIUM, d04=Severity.MEDIUM)
+    evaluate_chains(idx)
+
+    assert not [e for e in idx.evidence if e.detector_id == "behavior_chain"]
 
 
 def test_lone_medium_finding_is_downgraded() -> None:
@@ -129,8 +169,7 @@ def test_chain_escalation_drives_malicious_verdict() -> None:
     """End-to-end: a complete chain must be enough on its own to reach
     a MALICIOUS verdict via the CRITICAL behavior_chain evidence."""
     idx = EvidenceIndex()
-    idx.add(Evidence("d07", Severity.HIGH, "com/evil/Loader", "", 0, "System.loadLibrary"))
-    idx.add(Evidence("d04", Severity.INFO, "com/evil/Loader", "", 0, "FileOutputStream"))
+    _loader_class(idx)
     evaluate_chains(idx)
 
     verdict, confidence = VerdictAggregator().compute(idx)
