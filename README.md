@@ -114,6 +114,14 @@ Then open your browser at `http://127.0.0.1:8765` to:
 * **Quarantine Management**: Safely isolate, restore, permanently delete, or empty quarantine.
 * **Settings**: Configure parallel workers, archive/script/config-file scanning, quarantine triggers (malicious and/or suspicious), custom quarantine folder path, retained scan-history size, date/time display format, and whether auto-discovery runs at all (with a one-click reset for any individually excluded directories).
 
+`serve` prints the auth token and passes it to the browser it opens (the
+page then keeps it in `localStorage`). Without that hand-off — with
+`--no-browser`, or in a container — paste the token into **Settings → API
+Authentication token**, or open `http://<host>:8765/#token=<token>`. Use
+the fragment (`#`) rather than a query string: a fragment is never sent
+to the server, so it cannot end up in an access log or a `Referer`
+header.
+
 `--host`/`--port` (and `config`'s equivalents like quarantine triggers)
 are **not** the same thing: `--host`/`--port` only affect the current
 `mcrataway serve` invocation and are never persisted — the next time

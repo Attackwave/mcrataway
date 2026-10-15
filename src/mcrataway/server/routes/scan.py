@@ -112,16 +112,12 @@ async def start_scan(
                 job_id,
                 actual_roots,
                 auto_discover,
-                {
-                    "custom_roots": config.custom_roots,
-                    "max_workers": config.max_workers,
-                    "quarantine_suspicious": config.quarantine_suspicious,
-                    "quarantine_malicious": config.quarantine_malicious,
-                    "scan_archives": config.scan_archives,
-                    "scan_scripts": config.scan_scripts,
-                    "scan_configs": config.scan_configs,
-                    "max_recursion_depth": config.max_recursion_depth,
-                },
+                # The whole config, not a hand-picked subset: the previous
+                # explicit list silently dropped quarantine_dir (scans
+                # quarantined into the default dir while the UI listed the
+                # configured one), whitelisted_hashes (a hash the user had
+                # whitelisted was still flagged) and excluded_paths.
+                dict(config.__dict__),
                 on_event,
             )
 
@@ -132,11 +128,11 @@ async def start_scan(
             # from the live view.
             for r in result["results"]:
                 registry.add_finding(job_id, r)
-            registry.update_status(job_id, JobStatus.COMPLETED)
+            await registry.update_status(job_id, JobStatus.COMPLETED)
             registry.emit_done(job_id)
 
         except Exception as e:
-            registry.update_status(job_id, JobStatus.FAILED, error=str(e))
+            await registry.update_status(job_id, JobStatus.FAILED, error=str(e))
             registry.emit_done(job_id)
 
     # Store the task reference so it is not garbage-collected before completion
