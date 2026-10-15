@@ -53,7 +53,30 @@ rules:
 
 Rules loaded locally this way (from a file you already have on disk)
 are trusted implicitly — signing only applies to the *remote update*
-path, described next.
+path, described next. A locally authored pack that carries no `.sig`
+next to it is loaded as-is; one that *does* carry a `.sig` must still
+verify (see "Signature checking at load time" below).
+
+## Signature checking at load time
+
+Verifying a pack when it is downloaded proves who published the file —
+not that the copy on disk is still that file, since
+`~/.mcrataway/rules/` is writable by anything running as the user. Every
+load therefore re-checks a pack that carries a `.sig` sibling:
+
+- a `.sig` that does not verify → the pack is skipped with a warning
+  (it was modified after signing);
+- a pack without a `.sig` → loaded as a locally authored pack, but it
+  may **not** replace a built-in pack. Reusing a built-in `pack_id`
+  without a signature would delete the shipped detections, so it is
+  refused; give the pack its own `pack_id`, or sign it.
+
+The same applies to the known-good hash store
+(`~/.mcrataway/reputation/known_good.yaml`), which is a whitelist: it is
+only loaded when its signature verifies, so nothing that can write the
+file can whitelist its own hashes. A store that fails verification
+whitelists nothing — the safe default; use
+`config.whitelisted_hashes` for a hand-maintained list.
 
 ## Remote Rule Updates and Signing
 
