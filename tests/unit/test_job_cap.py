@@ -28,24 +28,24 @@ def test_create_job_rejected_when_running_cap_hit():
     assert overflow is None
 
 
-def test_job_accepted_after_running_one_completes():
+async def test_job_accepted_after_running_one_completes():
     """A completed job frees its slot — a new job must then be accepted."""
     registry = JobRegistry()
     jid = registry.create_job(roots=["/tmp"])
     assert jid is not None
-    registry.update_status(jid, JobStatus.COMPLETED)
+    await registry.update_status(jid, JobStatus.COMPLETED)
 
     # Slot is freed now.
     jid2 = registry.create_job(roots=["/tmp"])
     assert jid2 is not None
 
 
-def test_job_accepted_after_running_one_fails():
+async def test_job_accepted_after_running_one_fails():
     """A failed job also frees its slot."""
     registry = JobRegistry()
     jid = registry.create_job(roots=["/tmp"])
     assert jid is not None
-    registry.update_status(jid, JobStatus.FAILED, error="boom")
+    await registry.update_status(jid, JobStatus.FAILED, error="boom")
 
     jid2 = registry.create_job(roots=["/tmp"])
     assert jid2 is not None

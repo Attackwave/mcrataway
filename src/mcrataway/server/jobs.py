@@ -1,6 +1,7 @@
 """Job registry — tracks scan jobs and manages WebSocket subscribers."""
 
 import asyncio
+import contextlib
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -28,6 +29,14 @@ _MAX_RUNNING_JOBS = 2
 # alongside the job's findings list. The tail is kept so recent
 # subscribers still get a meaningful replay of the final state.
 _MAX_EVENT_LOG_PER_JOB = 500
+
+# Maximum number of events a single subscriber's queue may hold. The
+# per-job event log above only bounds *replay*; a subscriber that stops
+# draining (a throttled background tab, a client that stopped reading)
+# would otherwise accumulate the rest of the scan's event stream in its
+# own queue. Must stay >= _MAX_EVENT_LOG_PER_JOB so a fresh subscriber's
+# replay always fits.
+_MAX_SUBSCRIBER_BACKLOG = 1000
 
 
 @dataclass
@@ -112,7 +121,9 @@ class JobRegistry:
     def is_dismissed(self, job_id: str) -> bool:
         return job_id in self.dismissed_job_ids
 
-    def update_status(self, job_id: str, status: JobStatus, error: str | None = None) -> None:
+    async def update_status(
+        self, job_id: str, status: JobStatus, error: str | None = None
+    ) -> None:
         job = self.jobs.get(job_id)
         if job:
             job.status = status
@@ -134,7 +145,12 @@ class JobRegistry:
             # unconditional on) the in-memory _MAX_COMPLETED_JOBS
             # eviction below — one bounds RAM, the other bounds disk.
             if status == JobStatus.COMPLETED and self._history is not None:
-                self._history.record(job)
+                # A report is a multi-megabyte JSON write with an index
+                # rewrite; on the event loop it would freeze the
+                # WebSocket feed it is announcing the end of. Awaited
+                # rather than fired and forgotten, so "scan is COMPLETED"
+                # still means "History has it".
+                await asyncio.to_thread(self._history.record, job)
             # Clean up old completed/failed jobs to bound memory
             if status in (JobStatus.COMPLETED, JobStatus.FAILED):
                 self._cleanup_old_jobs()
@@ -175,7 +191,9 @@ class JobRegistry:
         live events continue. Non-existent jobs receive a terminal
         ``done`` event so the WebSocket does not hang.
         """
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
+            maxsize=_MAX_SUBSCRIBER_BACKLOG
+        )
         if job_id in self.subscribers:
             # Replay buffered events FIRST, using put_nowait so no event
             # loop yield allows a concurrent _emit to interleave live
@@ -191,7 +209,7 @@ class JobRegistry:
             self.subscribers[job_id].append(queue)
         else:
             # Non-existent job — send a terminal event immediately
-            await queue.put({"type": "done", "error": "Job not found"})
+            self._deliver(queue, {"type": "done", "error": "Job not found"})
         return queue
 
     def unsubscribe(self, job_id: str, queue: asyncio.Queue[dict[str, Any]]) -> None:
@@ -199,6 +217,22 @@ class JobRegistry:
         subs = self.subscribers.get(job_id)
         if subs and queue in subs:
             subs.remove(queue)
+
+    @staticmethod
+    def _deliver(queue: asyncio.Queue[dict[str, Any]], event: dict[str, Any]) -> None:
+        """Hand *event* to *queue*, keeping the queue bounded.
+
+        A subscriber that stops draining — a throttled background tab, a
+        client that stopped reading — must not make the server buffer a
+        whole scan's stream per socket. The newest event wins, so a
+        subscriber that catches up ends up with the current state, and
+        the terminal event is never the one that gets dropped.
+        """
+        if queue.full():
+            with contextlib.suppress(asyncio.QueueEmpty):
+                queue.get_nowait()
+        with contextlib.suppress(asyncio.QueueFull):
+            queue.put_nowait(event)
 
     def _emit(self, job_id: str, event: dict[str, Any]) -> None:
         """Emit an event to all subscribers and buffer it for late joiners.
@@ -209,7 +243,7 @@ class JobRegistry:
         """
         if job_id in self.subscribers:
             for queue in self.subscribers[job_id]:
-                queue.put_nowait(event)
+                self._deliver(queue, event)
         job = self.jobs.get(job_id)
         if job:
             job.event_log.append(event)
@@ -221,7 +255,7 @@ class JobRegistry:
         """Close all subscriber queues."""
         for queues in self.subscribers.values():
             for queue in queues:
-                await queue.put({"type": "done"})
+                self._deliver(queue, {"type": "done"})
 
     def _cleanup_old_jobs(self) -> None:
         """Remove old completed/failed jobs to bound memory usage."""

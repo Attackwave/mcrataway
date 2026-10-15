@@ -96,9 +96,17 @@ def test_benign_corpus_is_clean(tmp_path: Path, name: str) -> None:
 
 # Clearly malicious — must be MALICIOUS.
 MALICIOUS_FIXTURES = [
-    ("DirectExec", {"d01"}),           # Runtime.exec / ProcessBuilder
+    # Starts a process twice (one capability) *and* hides a URL, which is
+    # the hidden-download-plus-execution chain: MALICIOUS for the
+    # combination, not for the repeated call.
+    ("DirectExec", {"d01", "behavior_chain"}),
     ("ReflectiveExec", None),           # reflection-hidden exec
     ("SessionStealer", {"rule:suspicious_indicators:session_token_exfil"}),
+    # Staged downloads: the shapes mod malware actually has. Any single
+    # link is ordinary (an update checker fetches, a mod writes a file, a
+    # launcher runs something); the complete behavior is the signal.
+    ("Dropper", {"d01", "d02", "behavior_chain"}),
+    ("Reloader", {"d02", "d03", "behavior_chain"}),
 ]
 
 
