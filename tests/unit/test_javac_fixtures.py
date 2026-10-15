@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from mcrataway.constants import Verdict
+from mcrataway.constants import Severity, Verdict
 from mcrataway.core.evidence import Evidence, EvidenceIndex
 from mcrataway.core.quarantine import QuarantineManager
 from mcrataway.core.scan_engine import ScanEngine
@@ -72,6 +72,34 @@ class TestRealBytecodeDetection:
         detector_ids = {f.detector_id for f in result.findings}
         assert "d01" in detector_ids  # Runtime.exec / ProcessBuilder
         assert "d07" in detector_ids  # System.loadLibrary
+
+    def test_native_load_without_staging_is_not_high(
+        self, engine: ScanEngine, tmp_path: Path
+    ) -> None:
+        """A mod loading the native library it ships — System.load with an
+        absolute path, nothing staged in the class — must not collect a HIGH
+        finding for it. That is the shape of voicechat, Distant Horizons and
+        every mod with its own native, and as a HIGH it paired with any other
+        capability into a MALICIOUS verdict."""
+        jar = _make_jar(
+            tmp_path, "nativeload.jar", {"NativeLoad.class": _class_bytes("NativeLoad")}
+        )
+        result = engine._scan_single(jar)
+        d07 = [f for f in result.findings if f.detector_id == "d07"]
+        assert d07, "D07 no longer reports the native load at all"
+        assert all(f.severity != Severity.HIGH for f in d07)
+
+    def test_native_load_after_staging_is_high(self, engine: ScanEngine, tmp_path: Path) -> None:
+        """The same call after extracting a bundled native into a temp file
+        (createTempFile + deleteOnExit) is the DLL-staging pattern D07 exists
+        for and stays a HIGH finding."""
+        jar = _make_jar(
+            tmp_path, "stagednative.jar", {"StagedNative.class": _class_bytes("StagedNative")}
+        )
+        result = engine._scan_single(jar)
+        assert any(
+            f.detector_id == "d07" and f.severity == Severity.HIGH for f in result.findings
+        ), [(f.detector_id, f.severity.name) for f in result.findings]
 
     def test_hidden_string_is_reconstructed_and_scored(
         self, engine: ScanEngine, tmp_path: Path

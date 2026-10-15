@@ -39,6 +39,16 @@ class D07NativeJni(Detector):
     def analyze_class(self, class_file: ClassFile) -> list[Evidence]:
         evidence: list[Evidence] = []
         cp = class_file.constant_pool
+        all_strings = cp.all_strings()
+
+        # A class that stages a file and then loads a native library by
+        # absolute path is the DLL-staging pattern. Loading one without any
+        # staging in the class is a mod loading a library it ships itself
+        # (voicechat, Distant Horizons), so the same call is only a strong
+        # signal in the staged case.
+        has_staging = any(
+            indicator in s for s in all_strings for indicator in _STAGING_INDICATORS
+        )
 
         for method in class_file.methods:
             if not method.bytecode:
@@ -49,11 +59,12 @@ class D07NativeJni(Detector):
                 if inv.owner == "java/lang/System" and inv.name in ("load", "loadLibrary"):
                     # System.loadLibrary() is completely normal — every
                     # LWJGL/rendering mod uses it to load bundled natives.
-                    # Rate it MEDIUM (not HIGH) so it doesn't single-
-                    # handedly trip MALICIOUS. System.load() takes an
-                    # absolute path and is the actual payload-staging
-                    # vector, so it stays HIGH.
-                    sev = Severity.HIGH if inv.name == "load" else Severity.MEDIUM
+                    # System.load() takes an absolute path, which is the
+                    # actual payload-staging vector, but only when the class
+                    # also stages a file: an absolute path on its own is how
+                    # a mod loads the native it ships.
+                    staged_load = inv.name == "load" and has_staging
+                    sev = Severity.HIGH if staged_load else Severity.MEDIUM
                     evidence.append(
                         self._add_evidence(
                             class_file,
@@ -66,7 +77,6 @@ class D07NativeJni(Detector):
                         )
                     )
 
-        all_strings = cp.all_strings()
         evidence.extend(self._scan_strings(class_file, all_strings, obfuscated=False))
         return evidence
 
