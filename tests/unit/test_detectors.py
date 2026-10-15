@@ -252,6 +252,24 @@ def test_d13_ordinary_manifest_not_flagged():
     assert len(evs) == 0
 
 
+def test_d08_source_file_names_are_not_credential_paths():
+    """The SourceFile attribute is an ordinary constant-pool string, so the
+    cookie classes of any bundled Apache HTTP client arrive as
+    "ResponseProcessCookies.java" / "RequestAddCookies.java". A leading dot
+    is path context ("Cookies.db"), but ".java" is the class's own name —
+    matching it made authme, neruina and Flashback collect two HIGH
+    credential-path findings each for a cookie implementation."""
+    from mcrataway.detectors.d08_credential_theft import D08CredentialTheft
+
+    parsed = parse_class(
+        _build_class(["ResponseProcessCookies.java", "RequestAddCookies.java"])
+    )
+    assert parsed is not None
+    evs = D08CredentialTheft().analyze_class(parsed)
+    assert [e for e in evs if e.severity.name == "HIGH"] == []
+    # The bare name is still recorded, as the weak signal it is.
+    assert all(e.severity.name == "LOW" for e in evs)
+
 def test_d05_flags_linux_and_macos_persistence_paths():
     det = D05Persistence()
     for path in ("/etc/ld.so.preload", "~/Library/LaunchAgents/com.evil.plist"):
