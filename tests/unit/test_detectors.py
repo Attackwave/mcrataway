@@ -67,12 +67,19 @@ def test_d04_no_false_positive():
     assert len(D04FilesystemJarMod().analyze_class(parsed)) == 0
 
 
-def test_d04_detects_credential_path():
+def test_credential_paths_belong_to_d08_alone():
+    """D04 used to report launcher_accounts.json as well, as a second HIGH
+    for the same constant — one string, two detectors, which on its own
+    reached a MALICIOUS verdict. D08 owns credential paths, with the same
+    list and the same severity."""
+    from mcrataway.detectors.d08_credential_theft import D08CredentialTheft
+
     data = _build_class([".minecraft/launcher_accounts.json"])
     parsed = parse_class(data)
     assert parsed is not None
-    evs = D04FilesystemJarMod().analyze_class(parsed)
-    assert len(evs) > 0
+    assert D04FilesystemJarMod().analyze_class(parsed) == []
+    d08 = D08CredentialTheft().analyze_class(parsed)
+    assert any(e.severity.name == "HIGH" for e in d08)
 
 
 def test_d05_detects_persistence():
