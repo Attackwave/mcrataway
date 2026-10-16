@@ -108,10 +108,13 @@ jobs:
       - name: Sign SHA256SUMS with cosign (keyless OIDC)
         run: |
           # Keyless signing via GitHub OIDC — no private key to manage.
-          # Users verify with `cosign verify-blob SHA256SUMS
+          # cosign v3 writes signature, certificate and transparency-log
+          # proof into a single bundle; the detached .sig/.pem pair is gone
+          # from both sign-blob and verify-blob. Users verify with
+          # `cosign verify-blob SHA256SUMS --bundle SHA256SUMS.bundle
           # --certificate-identity-regexp "https://github.com/Attackwave/mcrataway"
-          # --certificate-oidc-issuer "https://token.actions.githubusercontent.com"`
-          cosign sign-blob --yes SHA256SUMS --output-signature SHA256SUMS.sig --output-certificate SHA256SUMS.pem
+          # --certificate-oidc-issuer "https://token.actions.githubusercontent.com"`.
+          cosign sign-blob --yes --bundle SHA256SUMS.bundle SHA256SUMS
 
       - name: Publish Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -119,6 +122,5 @@ jobs:
           files: |
             release-assets/*
             SHA256SUMS
-            SHA256SUMS.sig
-            SHA256SUMS.pem
+            SHA256SUMS.bundle
           generate_release_notes: true
