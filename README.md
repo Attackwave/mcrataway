@@ -208,14 +208,14 @@ Standalone binaries for **Linux**, **Windows**, and **macOS** are also automatic
 Release binaries are signed with [cosign](https://github.com/sigstore/cosign) (keyless OIDC signing via GitHub Actions). Each release includes:
 
 - `SHA256SUMS` — checksums for all binaries
-- `SHA256SUMS.sig` — cosign signature over `SHA256SUMS`
-- `SHA256SUMS.pem` — cosign signing certificate
+- `SHA256SUMS.bundle` — cosign signature, signing certificate and transparency-log proof over `SHA256SUMS`
 
 Verify a downloaded binary before running it:
 
 ```bash
 # 1. Verify the checksums file signature
 cosign verify-blob SHA256SUMS \
+  --bundle SHA256SUMS.bundle \
   --certificate-identity-regexp "https://github.com/Attackwave/mcrataway" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
 
