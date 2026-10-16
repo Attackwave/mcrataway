@@ -119,8 +119,14 @@ jobs:
       - name: Publish Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
+          # `release-assets/*` already holds SHA256SUMS: the checksum step
+          # copies it in. Listing it here too uploads the same asset name
+          # twice, and the second upload tries to update an asset that was
+          # created a moment earlier — GitHub answers 404 and the run fails
+          # with the release left as a draft (v2.3.3 needed a re-run). The
+          # bundle is created at the workspace root by cosign, so it is the
+          # only extra file that needs naming.
           files: |
             release-assets/*
-            SHA256SUMS
             SHA256SUMS.bundle
           generate_release_notes: true
