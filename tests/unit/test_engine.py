@@ -226,6 +226,37 @@ def test_verdict_aggregator_suspicious_from_medium():
     assert v == Verdict.SUSPICIOUS
 
 
+def test_verdict_aggregator_script_subdetectors_are_one_capability():
+    """The script analyzer's eval/fetch/oversized findings are views of
+    one scripting surface, not three capabilities: counting them apart
+    let a script-heavy mod reach MALICIOUS's 8-MEDIUM threshold on its
+    own, while nine hundred D10 findings correctly counted as one."""
+    idx = EvidenceIndex()
+    for detector_id in ("script:eval", "script:fetch", "script:oversized", "archive"):
+        idx.add(Evidence(
+            detector_id=detector_id,
+            severity=Severity.MEDIUM,
+            class_name="com/test/Script",
+            method_name="run",
+            offset=0,
+            description=f"{detector_id} finding",
+        ))
+    for i, det_id in enumerate(("d01", "d02", "d03", "d06")):
+        idx.add(Evidence(
+            detector_id=det_id,
+            severity=Severity.MEDIUM,
+            class_name=f"com/test/C{i}",
+            method_name="m",
+            offset=i * 10,
+            description=f"evidence {i}",
+        ))
+    agg = VerdictAggregator()
+    v, _ = agg.compute(idx)
+    # 6 distinct capabilities after the collapse, 8 before — the old count
+    # crossed the 8-MEDIUM MALICIOUS threshold.
+    assert v == Verdict.SUSPICIOUS
+
+
 def test_verdict_aggregator_one_detector_repeating_high_is_not_malicious():
     # D01 reporting Runtime.exec five times across a bundle of
     # command-line tools is ONE capability. MALICIOUS's high_count=2
@@ -246,7 +277,31 @@ def test_verdict_aggregator_one_detector_repeating_high_is_not_malicious():
     assert c <= 0.9
 
 
-def test_verdict_aggregator_two_distinct_high_detectors_is_malicious():
+def test_verdict_aggregator_two_capabilities_in_one_class_is_malicious():
+    """Two strong signals describing the *same* class are one behaviour."""
+    idx = EvidenceIndex()
+    for i, det_id in enumerate(("d01", "d07")):
+        idx.add(Evidence(
+            detector_id=det_id,
+            severity=Severity.HIGH,
+            class_name="com/test/C0",
+            method_name="m",
+            offset=i * 10,
+            description=f"evidence {i}",
+        ))
+    agg = VerdictAggregator()
+    v, c = agg.compute(idx)
+    assert v == Verdict.MALICIOUS
+
+
+def test_verdict_aggregator_two_capabilities_in_different_classes_is_suspicious():
+    """Regression: 15 of the 16 popular mods still flagged MALICIOUS on
+    the corpus scan were nothing but D01 plus D03/D07 sitting in
+    *different* classes — a helper process in one class and a bundled
+    native in another is how legitimate mods (and LWJGL itself) work.
+    Two capabilities only read as one strong behaviour when they
+    describe the same class; the class-scoped overrides and the
+    behaviour chains still cover stages split across classes."""
     idx = EvidenceIndex()
     for i, det_id in enumerate(("d01", "d07")):
         idx.add(Evidence(
@@ -259,7 +314,8 @@ def test_verdict_aggregator_two_distinct_high_detectors_is_malicious():
         ))
     agg = VerdictAggregator()
     v, c = agg.compute(idx)
-    assert v == Verdict.MALICIOUS
+    assert v == Verdict.SUSPICIOUS
+    assert c <= 0.9
 
 
 def test_verdict_aggregator_target_based_repeats_count_separately():
