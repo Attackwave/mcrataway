@@ -146,9 +146,13 @@ class D13MixinCoremod(Detector):
         as a type descriptor (e.g. ``Lnet/minecraft/client/util/Session;``).
         When @Redirect or @Overwrite is also present in the same class
         and the target is auth-sensitive (Session, Yggdrasil, packet
-        encoder/decoder), this is CRITICAL — the mixin is replacing
+        encoder/decoder), this is HIGH — the mixin is replacing
         the behavior of a method that holds or processes credentials,
-        without ever calling any API D01–D11 watch for.
+        without ever calling any API D01–D11 watch for. It is not
+        CRITICAL on its own because rewriting an auth method is how every
+        protocol- or version-support mod works; what makes it malware is
+        the second half, a network sink in the same class, and that pair
+        is the d13+d02 static override in the verdict aggregator.
 
         Without @Redirect/@Overwrite, a type-descriptor match on its
         own is ambiguous: the sensitive class might appear as a method
@@ -193,7 +197,7 @@ class D13MixinCoremod(Detector):
         # Session object) rather than as the @Mixin *target* (the class
         # being rewritten). So the mixin class's own name has to suggest
         # the target too ("MixinSession") — with @Redirect/@Overwrite
-        # that combination is CRITICAL, without it MEDIUM.
+        # that combination is HIGH, without it MEDIUM.
         #
         # Requiring the name in both branches is what keeps a HUD or
         # screen mixin that happens to reference the screen class
@@ -224,7 +228,7 @@ class D13MixinCoremod(Detector):
                             f"of a method that holds or processes credentials "
                             f"without calling any API other detectors watch for"
                         ),
-                        Severity.CRITICAL,
+                        Severity.HIGH,
                         matched_value=target,
                         context={
                             "mixin_target": target,

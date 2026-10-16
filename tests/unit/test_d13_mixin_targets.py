@@ -6,8 +6,10 @@ malicious Mixin targeting the session-token accessor never needs to
 call any API D01–D11 watch for; it just edits the method that already
 has the token. These tests verify the detector:
 
-  - Flags @Redirect/@Overwrite on auth-sensitive targets as CRITICAL.
-  - Flags @Mixin into auth-sensitive targets (without @Redirect) as HIGH.
+  - Flags @Redirect/@Overwrite on auth-sensitive targets as HIGH — a
+    strong lead, not a verdict: the *pair* with a network sink in the
+    same class is what the aggregator forces to MALICIOUS.
+  - Flags @Mixin into auth-sensitive targets (without @Redirect) as MEDIUM.
   - Rates network-packet targets (PacketEncoder/Decoder) as MEDIUM.
   - Does NOT flag rendering mods that happen to reference auth classes
     as method parameters (not @Mixin targets).
@@ -80,10 +82,14 @@ class TestD13MixinTargetAllowlist:
     """The target allowlist must be narrow enough to not flag benign
     mods, but broad enough to catch auth-targeting mixins."""
 
-    def test_redirect_on_auth_target_is_critical(self):
-        """@Redirect on an auth-sensitive target (Session) must be
-        CRITICAL — this is the exact pattern a malicious Mixin uses
-        to replace the behavior of a method that holds credentials."""
+    def test_redirect_on_auth_target_is_a_high_lead(self):
+        """@Redirect on an auth-sensitive target (Session) is HIGH — this
+        is the exact pattern a malicious Mixin uses to replace the
+        behavior of a method that holds credentials. It is not CRITICAL
+        on its own: rewriting an auth method is what protocol-support
+        mods do, and ViaFabricPlus did exactly that to Yggdrasil auth.
+        The MALICIOUS case is the pair with a network sink in the same
+        class (test_engine's d13+d02 override test)."""
         data = _make_mixin_class(
             "com/evil/MixinSession",
             [
@@ -95,10 +101,10 @@ class TestD13MixinTargetAllowlist:
         parsed = parse_class(data)
         assert parsed is not None
         evs = D13MixinCoremod().analyze_class(parsed)
-        crits = [e for e in evs if e.severity == Severity.CRITICAL]
-        assert len(crits) == 1
-        assert "Session" in crits[0].matched_value
-        assert crits[0].context.get("annotation") == "redirect_or_overwrite"
+        highs = [e for e in evs if e.severity == Severity.HIGH]
+        assert len(highs) == 1
+        assert "Session" in highs[0].matched_value
+        assert highs[0].context.get("annotation") == "redirect_or_overwrite"
 
     def test_mixin_into_auth_target_without_redirect_is_medium(self):
         """@Mixin into Session without @Redirect/@Overwrite is MEDIUM:
@@ -156,8 +162,7 @@ class TestD13MixinTargetAllowlist:
         evs = D13MixinCoremod().analyze_class(parsed)
         # No @Redirect/@Overwrite, and class name is "LoadingOverlay"
         # not "Session" or "Yggdrasil" → no match.
-        assert all(e.severity != Severity.HIGH for e in evs)
-        assert all(e.severity != Severity.CRITICAL for e in evs)
+        assert all(e.severity < Severity.HIGH for e in evs)
 
     def test_intermediary_ids_are_not_auth_targets(self):
         """Regression: class_332 was listed as YggdrasilAuthenticationService
@@ -181,8 +186,7 @@ class TestD13MixinTargetAllowlist:
         parsed = parse_class(data)
         assert parsed is not None
         evs = D13MixinCoremod().analyze_class(parsed)
-        assert all(e.severity != Severity.HIGH for e in evs)
-        assert all(e.severity != Severity.CRITICAL for e in evs)
+        assert all(e.severity < Severity.HIGH for e in evs)
 
     def test_redirect_mixin_whose_name_does_not_suggest_auth_not_flagged(self):
         """Regression: modernfix's MinecraftMixin references
@@ -202,8 +206,7 @@ class TestD13MixinTargetAllowlist:
         parsed = parse_class(data)
         assert parsed is not None
         evs = D13MixinCoremod().analyze_class(parsed)
-        assert all(e.severity != Severity.HIGH for e in evs)
-        assert all(e.severity != Severity.CRITICAL for e in evs)
+        assert all(e.severity < Severity.HIGH for e in evs)
 
 
 class TestD13MixinConfig:

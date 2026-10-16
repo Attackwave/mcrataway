@@ -60,6 +60,18 @@ def test_d03_no_false_positive():
     assert len(D03DynamicLoading().analyze_class(parsed)) == 0
 
 
+def test_d03_only_loading_calls_are_high():
+    """`URLClassLoader.getURLs` is a read-only accessor, not dynamic
+    loading. Rating it like the constructor put JNA's Native class into
+    the native-staging override (D07 + D03 in one class), so every mod
+    bundling JNA reached MALICIOUS on its own library code."""
+    from mcrataway.detectors.d03_dynamic_loading import _severity_for
+
+    assert _severity_for("<init>", is_stdlib=False) == Severity.HIGH
+    assert _severity_for("getURLs", is_stdlib=False) == Severity.MEDIUM
+    assert _severity_for("<init>", is_stdlib=True) == Severity.MEDIUM
+
+
 def test_d04_no_false_positive():
     data = _build_class(["safe_string"])
     parsed = parse_class(data)
@@ -139,9 +151,11 @@ def test_d10_no_false_positive():
 
 def test_d12_archive_entry_png():
     det = D12ResourcepackExploit()
-    # Large PNG should trigger
+    # A large texture is an asset choice, not an exploit: LOW keeps it
+    # visible in the report without spending a MEDIUM capability.
     evs = det.analyze_archive_entry("texture.png", b"\x89PNG" + b"\x00" * 2000000)
-    assert len(evs) > 0
+    assert len(evs) == 1
+    assert evs[0].severity == Severity.LOW
 
 
 def test_d12_archive_entry_small_png():

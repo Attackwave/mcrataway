@@ -226,6 +226,47 @@ def test_verdict_aggregator_suspicious_from_medium():
     assert v == Verdict.SUSPICIOUS
 
 
+def test_verdict_aggregator_auth_mixin_with_network_is_malicious():
+    """The pattern D13 exists for: a mixin that rewrites Session/Yggdrasil
+    behaviour *and* has a network sink in the same class. Neither half is
+    enough on its own — every protocol-support mod rewrites auth methods,
+    and every mod talks to the network."""
+    idx = EvidenceIndex()
+    for det_id, severity, description in (
+        ("d13", Severity.HIGH, "@Redirect on auth-sensitive target"),
+        ("d02", Severity.MEDIUM, "http post"),
+    ):
+        idx.add(Evidence(
+            detector_id=det_id,
+            severity=severity,
+            class_name="com/evil/mixin/MixinSession",
+            method_name="redirect",
+            offset=0,
+            description=description,
+        ))
+    agg = VerdictAggregator()
+    v, _ = agg.compute(idx)
+    assert v == Verdict.MALICIOUS
+
+
+def test_verdict_aggregator_auth_mixin_alone_is_suspicious():
+    """Regression: ViaFabricPlus rewrites Yggdrasil auth in a mixin class
+    that contains nothing else, and was MALICIOUS from that one CRITICAL.
+    Rewriting an auth method is a strong lead, not a verdict."""
+    idx = EvidenceIndex()
+    idx.add(Evidence(
+        detector_id="d13",
+        severity=Severity.HIGH,
+        class_name="com/viaversion/viafabricplus/MixinYggdrasilUserApiService",
+        method_name="redirect",
+        offset=0,
+        description="@Redirect on auth-sensitive target",
+    ))
+    agg = VerdictAggregator()
+    v, _ = agg.compute(idx)
+    assert v == Verdict.SUSPICIOUS
+
+
 def test_verdict_aggregator_script_subdetectors_are_one_capability():
     """The script analyzer's eval/fetch/oversized findings are views of
     one scripting surface, not three capabilities: counting them apart
