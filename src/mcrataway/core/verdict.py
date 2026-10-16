@@ -216,6 +216,18 @@ class VerdictAggregator:
             ):
                 return True
 
+        # An auth-rewriting mixin that also talks to the network in the
+        # same class: rewriting Session/Yggdrasil behaviour is how every
+        # protocol-support mod works, but shipping the exfiltration it
+        # feeds is not. D13 rates the rewrite HIGH rather than CRITICAL
+        # for that reason, so this pair is what forces the verdict.
+        for per_detector in strengths.values():
+            if (
+                per_detector.get("d13", Severity.INFO) >= Severity.HIGH
+                and per_detector.get("d02", Severity.INFO) >= Severity.MEDIUM
+            ):
+                return True
+
         # On-chain C2 is always malicious
         if any("d11" in e.detector_id and e.severity >= Severity.HIGH for e in index.evidence):
             return True

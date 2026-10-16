@@ -13,6 +13,19 @@ from mcrataway.detectors.base import Detector
 from mcrataway.parsers.classfile import ClassFile
 from mcrataway.parsers.instructions import resolve_invokes
 
+# Calls on a class loader that actually obtain or define a class. A
+# read-only accessor such as ``URLClassLoader.getURLs`` says no more than
+# a reference to the class does, and rating it the same as the
+# constructor made JNA's ``Native`` read as native-DLL staging next to
+# D07 — every mod bundling JNA has ``System.load()`` and a class-loader
+# call in that one class and reached MALICIOUS.
+_LOADING_METHODS = frozenset({"<init>", "loadClass", "findClass", "defineClass", "newInstance"})
+
+
+def _severity_for(method_name: str, is_stdlib: bool) -> Severity:
+    """Severity of a URLClassLoader/SecureClassLoader call in a class."""
+    return Severity.HIGH if method_name in _LOADING_METHODS and not is_stdlib else Severity.MEDIUM
+
 
 class D03DynamicLoading(Detector):
     @property
@@ -65,7 +78,7 @@ class D03DynamicLoading(Detector):
                             method.name,
                             inv.offset,
                             f"Dynamic class loading via {inv.owner}.{inv.name}",
-                            Severity.HIGH if not is_stdlib else Severity.MEDIUM,
+                            _severity_for(inv.name, is_stdlib),
                             matched_value=f"{inv.owner}.{inv.name}{inv.descriptor}",
                             context={"invoke_owner": inv.owner, "invoke_name": inv.name},
                         )

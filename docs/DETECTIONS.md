@@ -30,7 +30,8 @@ Each detector analyzes parsed class files and writes evidence to a shared `Evide
 
 | Signal | Severity | Description |
 |--------|----------|-------------|
-| `URLClassLoader` | HIGH | Load classes from remote URL |
+| `URLClassLoader` / `SecureClassLoader` calls that obtain or define a class (`<init>`, `loadClass`, `findClass`, `defineClass`, `newInstance`) | HIGH | Load classes from a URL |
+| Any other call on those loaders (`getURLs`, `getResource`, …) | MEDIUM | Read-only classpath access, which says no more than a reference to the class does |
 | `ClassLoader.defineClass` | HIGH | Define classes from bytecode array |
 | `Class.forName` | MEDIUM | Dynamic class resolution |
 
@@ -151,7 +152,7 @@ and is worth escalating when combined with other findings.
 
 | Signal | Severity | Description |
 |--------|----------|-------------|
-| Oversized PNG (>1MB) | MEDIUM | Potential buffer overflow payload |
+| Oversized PNG (>1MB) | LOW | A large image asset — HD textures and UI art are routinely this size, so it is a note, not a capability |
 | PNG text chunks | LOW | Hidden data in PNG metadata |
 | Embedded script in pack.mcmeta | HIGH | JavaScript in resource pack metadata |
 | Excessive .mcfunction calls | MEDIUM | Potential DoS via recursive function chains |
@@ -170,7 +171,7 @@ bytecode alone.
 | Signal | Severity | Description |
 |--------|----------|-------------|
 | Mixin config (`*.mixins.json`) declaring a mixin class named after a sensitive target (Session, MinecraftClient, YggdrasilAuthenticationService, ClientConnection, packet encode/decode) | MEDIUM | Naming-convention signal — not a guarantee, but the same first-pass signal a human reviewer would use |
-| `Redirect`/`Overwrite` mixin annotation string + sensitive target name in the same class's constant pool | CRITICAL | These annotations fully substitute or reroute behavior at the injection point (unlike `Inject`, which runs alongside the original method) |
+| `Redirect`/`Overwrite` mixin annotation string + sensitive target name in the same class's constant pool | HIGH | These annotations fully substitute or reroute behavior at the injection point (unlike `Inject`, which runs alongside the original method). HIGH rather than CRITICAL because rewriting an auth method is what protocol- and version-support mods do — the malware case is the pair with a network sink (see the static override triggers) |
 | Sensitive target name in the class's constant pool without `Redirect`/`Overwrite` | MEDIUM | A mixin into session or auth code can intercept credentials even while running alongside the original method |
 | `FMLCorePlugin` / `FMLCorePluginContainsFMLMod` in `META-INF/MANIFEST.MF` | MEDIUM | Forge's pre-Mixin coremod mechanism — registers a ClassLoader transformer with full bytecode-rewrite access before any other mod code runs |
 
@@ -270,6 +271,9 @@ INFO network observation next to a LOW "mentions a cookie file" finding says not
 treating that as credential theft plus exfiltration made an HTTP client library MALICIOUS.
 
 - Credential theft (D08) at HIGH + network I/O (D02) at MEDIUM or worse **in the same class**
+- Auth-rewriting mixin (D13) at HIGH + network I/O (D02) at MEDIUM or worse **in the same class** —
+  rewriting `Session`/`Yggdrasil` behaviour is how protocol-support mods work, shipping the
+  exfiltration it feeds is not
 - Native/JNI loading (D07) at MEDIUM or worse + dynamic loading (D03) at HIGH **in the same class**
 - On-chain C2 (D11) at HIGH
 - Any signature rule match at HIGH severity
