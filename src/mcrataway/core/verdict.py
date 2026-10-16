@@ -24,6 +24,18 @@ _SEVERITY_WEIGHTS = {
 # command-line tools is still one capability.
 _TARGET_BASED_DETECTORS = frozenset({"d05", "d08"})
 
+
+def _capability(detector_id: str) -> str:
+    """Collapse sub-detectors of one analyzer onto a single capability.
+
+    The script analyzer reports ``script:eval``, ``script:fetch`` and
+    ``script:oversized``. Counting those apart let a script-heavy mod
+    reach the 8-MEDIUM threshold on its own, while nine hundred D10
+    findings correctly counted as one.
+    """
+    return detector_id.split(":", 1)[0]
+
+
 # Saturation constant for the confidence curve: 1 - exp(-score / _K).
 # Chosen so a single CRITICAL (score 1.0) already yields a high (~0.86)
 # confidence, matching the previous scheme's behavior for the common
@@ -59,10 +71,12 @@ class VerdictAggregator:
         # reserving MALICIOUS for either a strong signal (CRITICAL/
         # HIGH/chain) or a genuinely broad capability spread (8+
         # MEDIUMs from *distinct* detectors — see the dedup below).
-        # HIGH counts per detector for the same reason: "2 HIGHs" is
-        # meant to be two independent strong signals, not one detector
-        # firing twice — except for the target-based detectors, where
-        # each finding is its own victim (see _TARGET_BASED_DETECTORS).
+        # HIGH counts per capability within one class, for the same
+        # reason: "2 HIGHs" is meant to be two independent strong signals,
+        # not one detector firing twice — and not two detectors describing
+        # two *different* classes either (see compute()). The exception
+        # stays the target-based detectors, where each finding is its own
+        # victim (see _TARGET_BASED_DETECTORS).
         self._thresholds = {
             Verdict.MALICIOUS: {
                 "critical_count": 1,
@@ -99,26 +113,47 @@ class VerdictAggregator:
         # capabilities", which is a genuinely broad suspicious spread,
         # not one detector amplified by a large class count. The same
         # applies to LOW: D10 alone generating 455 LOWs in a big mod
-        # is one capability, not 455.
+        # is one capability, not 455. Sub-detectors of one analyzer
+        # collapse onto the same capability for the same reason — see
+        # _capability().
         distinct_medium_detectors = {
-            e.detector_id for e in index.evidence if e.severity == Severity.MEDIUM
+            _capability(e.detector_id) for e in index.evidence if e.severity == Severity.MEDIUM
         }
         distinct_low_detectors = {
-            e.detector_id for e in index.evidence if e.severity == Severity.LOW
+            _capability(e.detector_id) for e in index.evidence if e.severity == Severity.LOW
         }
 
-        # HIGH for the thresholds counts per detector (see the class
-        # docstring), while the score below keeps the raw volume: how
-        # often a capability appears still says how much of the mod is
-        # built out of it, it just does not create a second capability.
-        high_by_detector: dict[str, int] = {}
+        # HIGH for the thresholds counts per capability *within one class*:
+        # two strong signals only read as one behaviour when they describe
+        # the same class. Summing them across the whole archive made a mod
+        # that starts a helper process in one class and loads a bundled
+        # native in another indistinguishable from a dropper — that
+        # D01 + D03/D07 pair, sitting in different classes, accounted for
+        # 15 of the 16 popular mods still flagged MALICIOUS on the corpus
+        # scan. Malware that splits its stages across classes is still
+        # caught by the class-scoped static overrides and by the behaviour
+        # chains. The score below keeps the raw volume: how often a
+        # capability appears still says how much of the mod is built out
+        # of it, it just does not create a second capability.
+        high_capabilities: dict[str, set[str]] = {}
+        target_in_class: dict[str, int] = {}
         for e in index.evidence:
-            if e.severity == Severity.HIGH:
-                high_by_detector[e.detector_id] = high_by_detector.get(e.detector_id, 0) + 1
-        high_for_threshold = sum(
-            count if detector_id in _TARGET_BASED_DETECTORS else 1
-            for detector_id, count in high_by_detector.items()
+            if e.severity != Severity.HIGH:
+                continue
+            if e.detector_id in _TARGET_BASED_DETECTORS:
+                target_in_class[e.class_name] = target_in_class.get(e.class_name, 0) + 1
+            else:
+                high_capabilities.setdefault(e.class_name, set()).add(_capability(e.detector_id))
+        high_in_one_class = max(
+            (
+                len(high_capabilities.get(class_name, set())) + target_in_class.get(class_name, 0)
+                for class_name in high_capabilities.keys() | target_in_class.keys()
+            ),
+            default=0,
         )
+        # Target-based findings are victims rather than capabilities, so
+        # two of them count as two even when they sit in different classes.
+        high_for_threshold = max(high_in_one_class, sum(target_in_class.values()))
 
         score = (
             critical * _SEVERITY_WEIGHTS[Severity.CRITICAL]

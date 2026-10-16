@@ -240,20 +240,25 @@ YAML-defined rules with multi-string correlation. High-severity rules require mu
 |-----------|---------|------------|
 | No evidence | CLEAN | 1.0 |
 | Static override fires | MALICIOUS | 0.84–1.0 |
-| CRITICAL ≥ 1, or HIGH from ≥ 2 detectors, or MEDIUM from ≥ 8 detectors | MALICIOUS | weighted |
-| HIGH from ≥ 1 detector, or MEDIUM from ≥ 4, or LOW from ≥ 6 | SUSPICIOUS | weighted |
+| CRITICAL ≥ 1, or HIGH from ≥ 2 capabilities in one class, or MEDIUM from ≥ 8 capabilities | MALICIOUS | weighted |
+| HIGH from ≥ 1 capability, or MEDIUM from ≥ 4, or LOW from ≥ 6 | SUSPICIOUS | weighted |
 | Otherwise | CLEAN | 1.0 |
 
 Counting rules, applied to the evidence left after the chain pass:
 
-- **HIGH counts per detector**: "2 HIGHs" means two independent capabilities, not one detector
-  firing twice — `Runtime.exec` seen twenty times inside a bundle of command-line tools is still
-  one capability.
+- **HIGH counts per capability within one class**: "2 HIGHs" means two independent strong signals
+  describing the *same* class — `Runtime.exec` seen twenty times inside a bundle of command-line
+  tools is still one capability, and a helper process in one class next to a bundled native in
+  another is how legitimate mods (and LWJGL itself) work, not a dropper. Stages split across
+  classes are still covered by the class-scoped static overrides and the behaviour chains.
 - **D05 and D08 are target-based**, the exception to that rule: each of their findings names a
   distinct target (a wallet file, a launch agent, a key), so every HIGH from them counts
-  separately. Reading three credential files is three victims, not one finding counted thrice.
-- **MEDIUM and LOW count distinct detectors**, for the same reason: one detector firing across
-  fifty classes of a large mod's bundled libraries is one capability, not fifty.
+  separately. Victims do not care about class boundaries — reading three credential files is three
+  victims, not one finding counted thrice.
+- **MEDIUM and LOW count distinct capabilities**, for the same reason: one detector firing across
+  fifty classes of a large mod's bundled libraries is one capability, not fifty. Sub-detectors of
+  one analyzer collapse onto a single capability: `script:eval`, `script:fetch` and
+  `script:oversized` are three views of one scripting surface, not three capabilities.
 - **Confidence** is a monotonic function of the weighted score (CRITICAL 1.0, HIGH 0.6, MEDIUM
   0.2, LOW 0.05): more evidence can only raise it, never lower it, and a SUSPICIOUS verdict caps
   at 0.9 so it can never read as certainty.
