@@ -59,6 +59,9 @@ mcrataway is a Minecraft mod malware scanner that analyzes Java bytecode, script
 │  Aggregate evidence → CLEAN / SUSPICIOUS / MALICIOUS           │
 │  Static override guard forces MALICIOUS on high-confidence     │
 │  signals (cred-theft + network, on-chain C2, native staging)   │
+│  Behaviour chains — credential_exfiltration,                   │
+│  reload_and_execute and hidden_download_and_exec add a         │
+│  CRITICAL chain finding when every link fires in one class     │
 └───────────────────────┬─────────────────────────────────────────┘
                         │
                         ▼
@@ -77,8 +80,10 @@ mcrataway is a Minecraft mod malware scanner that analyzes Java bytecode, script
 ### CLI
 
 ```bash
-mcrataway [--home-dir DIR] scan <paths...> [--report out.json] [--quarantine] [--auto]
+mcrataway [--home-dir DIR] scan <paths...> [--report out.json] [--rules pack.yaml]
+                                       [--quarantine] [--auto] [--fail-on malicious|suspicious|none]
 mcrataway [--home-dir DIR] serve [--host 127.0.0.1] [--port 8765] [--reload]
+mcrataway [--home-dir DIR] rulegen <sample-dir> --family NAME [--severity low|medium|high|critical]
 ```
 
 `--home-dir` relocates the whole `~/.mcrataway` tree — config,
@@ -96,8 +101,10 @@ same setting.
 | POST | `/scan/` | Start scan job |
 | GET | `/scan/{id}` | Job status |
 | WS | `/scan/{id}/stream` | Live progress + findings |
+| GET | `/scan/ws-ticket` | Short-lived, single-use ticket for the WebSocket handshake (keeps the token out of the URL) |
 | GET | `/findings/` | List currently flagged files (filterable by `?severity=`) |
 | POST | `/findings/clear` | Dismiss all findings from view (does not affect History) |
+| GET | `/findings/{id}` | One finding, by SHA-256 or file-path suffix |
 | GET | `/history/` | List past completed scan sessions |
 | GET | `/history/{id}` | Full persisted report for one past session |
 | DELETE | `/history/{id}` | Delete one past session |
@@ -106,11 +113,12 @@ same setting.
 | POST | `/rules/test` | Test a rule pack against a sample file |
 | GET | `/quarantine/` | List quarantined items |
 | POST | `/quarantine/{sha256}` | Quarantine a specific file |
-| DELETE | `/quarantine/{sha256}/restore` | Restore item |
+| POST/DELETE | `/quarantine/{sha256}/restore` | Restore item |
 | DELETE | `/quarantine/{sha256}` | Permanently delete item |
 | POST | `/quarantine/purge` | Permanently delete all quarantined items |
 | GET | `/reports/{id}` | Full report for an in-memory job |
 | GET | `/system/roots` | Discovered roots |
+| GET | `/system/browse` | Browse directories and scannable items (UI folder picker) |
 | GET | `/system/health` | Liveness probe |
 | GET/POST | `/system/config` | Read/update user configuration |
 | POST | `/system/whitelist` | Whitelist a SHA-256 hash |

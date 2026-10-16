@@ -14,10 +14,13 @@ pip install -e ".[dev]"
 ruff check src/ tests/
 
 # Run type checker
-mypy --strict src/mcrataway
+mypy src/
 
 # Run tests
 pytest -v tests/
+
+# Coverage gate enforced by CI
+pytest --cov=mcrataway --cov-fail-under=78
 
 # Run CLI
 mcrataway scan --auto
@@ -50,7 +53,9 @@ toolchain. Edit it directly and reload the page in your browser while
            return evidence
    ```
 3. Register in `core/scan_engine._default_detectors()`
-4. Write tests in `tests/test_core.py`
+4. Add tests under `tests/unit/` — detector behaviour goes in
+   `tests/unit/test_detectors.py`, bytecode-level cases use the prebuilt
+   fixtures in `tests/javac_fixtures/`
 
 ## Adding a New Rule Pack
 
@@ -72,19 +77,27 @@ This generates synthetic JAR files:
 
 ## Release Process
 
-```bash
-# Build Python package
-python -m build
+Releases are cut by CI from a version tag — there is no manual upload step:
 
-# Upload to PyPI
-twine upload dist/*
-```
+1. Bump `__version__` in `src/mcrataway/__init__.py` in its own PR and merge it to `main`.
+2. Tag that merge commit and push the tag:
+   ```bash
+   git tag v2.4.0 && git push origin v2.4.0
+   ```
+3. `.github/workflows/build.yml` builds the Linux/Windows/macOS binaries, writes `SHA256SUMS`, signs it
+   with cosign (keyless GitHub OIDC, producing `SHA256SUMS.bundle`) and publishes the release. The README
+   documents the `cosign verify-blob` command users run on the result.
+
+Locally built binaries (no tag, no release) come from `python scripts/build.py` and land in `dist/`.
+
+Release notes are generated against the *previous release*, not the previous tag: a tag that never
+produced a release shifts that base, so read the generated notes before publishing.
 
 ## Code Style
 
 - All code in English
 - No references to external tools, services, or brand names in source code or documentation
 - `ruff` for linting (E, F, I, N, UP, B, SIM rules)
-- `mypy --strict` for type checking
+- `mypy` in strict mode (configured in `pyproject.toml`) for type checking
 - Max line length: 100 characters
 - Type annotations required on all public functions
