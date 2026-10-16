@@ -228,7 +228,7 @@ sha256sum -c SHA256SUMS --ignore-missing
 ## 🧪 Running Tests & Quality Checks
 
 ```bash
-# Run unit & integration test suite (290+ tests)
+# Run unit & integration test suite (400+ tests)
 pytest
 
 # Run static type checking

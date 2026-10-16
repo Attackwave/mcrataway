@@ -10,7 +10,6 @@ Thank you for your interest in contributing to **mcRATAway**! We welcome contrib
 
 * Python 3.12 or higher
 * `pip` and `git`
-* Node.js & npm (only required if contributing to the Web UI frontend)
 
 ### Development Setup
 
@@ -39,17 +38,19 @@ Before submitting a pull request, ensure all tests pass and typing checks succee
 
 ### Running Tests
 
-Run the full test suite with `pytest`:
+Run the full test suite with `pytest`. CI also enforces a coverage floor of 78 %:
 
 ```bash
 pytest
+pytest --cov=mcrataway --cov-fail-under=78
 ```
 
-### Static Type Checking
+### Linting & Static Type Checking
 
-Run `mypy` to verify type annotations:
+Run `ruff` and `mypy` — both must be clean:
 
 ```bash
+ruff check src/ tests/
 mypy src/
 ```
 
@@ -57,7 +58,7 @@ mypy src/
 
 ## 🛠️ Adding New Detectors or Signature Rules
 
-* **Detectors**: New Java bytecode capability detectors should be placed in `src/mcrataway/detectors/` following the `Dxx_name.py` pattern and extending `BaseDetector`.
+* **Detectors**: New Java bytecode capability detectors belong in `src/mcrataway/detectors/`, following the `d{NN}_{name}.py` pattern and extending `Detector` (from `mcrataway.detectors.base`).
 * **Rules**: YAML signature rule packs belong in `src/mcrataway/rules/packs/`.
 
 Always add corresponding unit tests under `tests/unit/` when introducing new detectors or signature matchers.
